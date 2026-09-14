@@ -13,12 +13,13 @@
   <header class="border-b border-emerald-950/80 bg-[#050807]/90 backdrop-blur-xl">
     <div class="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-5 py-4">
       <a href="/" class="flex items-center gap-3"><div class="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-400/30 bg-emerald-500/10">✦</div><div><div class="font-black">NekoRoute</div><div class="text-xs text-zinc-500">Proxy Preview</div></div></a>
-      <nav class="flex items-center gap-2"><a href="/tester" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Site Tester</a><a href="/" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm">Dashboard</a></nav>
+      <nav class="flex flex-wrap items-center gap-2"><a href="/tester" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Site Tester</a><a href="/scanner" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Malware Scanner</a><a href="/" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm">Dashboard</a></nav>
     </div>
   </header>
+
   <main class="mx-auto max-w-[1600px] px-4 py-5 sm:px-5">
     <section class="glass rounded-[1.75rem] border border-zinc-800 p-4">
-      <div class="grid gap-3 xl:grid-cols-[auto_auto_auto_1fr_auto]">
+      <div class="grid gap-3 xl:grid-cols-[auto_auto_auto_1fr]">
         <div class="flex gap-2">
           <button id="backBtn" disabled class="h-11 w-11 rounded-xl border border-zinc-800 bg-black/20 text-zinc-400 disabled:opacity-30">←</button>
           <button id="forwardBtn" disabled class="h-11 w-11 rounded-xl border border-zinc-800 bg-black/20 text-zinc-400 disabled:opacity-30">→</button>
@@ -27,7 +28,6 @@
         <select id="regionSelect" class="h-11 rounded-xl border border-zinc-800 bg-[#080d0a] px-3 text-sm"></select>
         <select id="countrySelect" class="h-11 rounded-xl border border-zinc-800 bg-[#080d0a] px-3 text-sm"></select>
         <div class="flex gap-2"><input id="urlInput" type="url" value="https://example.com/" class="h-11 min-w-0 flex-1 rounded-xl border border-zinc-800 bg-black/30 px-4 font-mono text-sm outline-none focus:border-emerald-500/60" /><button id="goBtn" class="h-11 rounded-xl bg-emerald-400 px-5 font-black text-emerald-950 hover:bg-emerald-300">Open</button></div>
-        <input id="adminToken" type="password" placeholder="Admin token" class="h-11 rounded-xl border border-zinc-800 bg-black/30 px-3 text-sm outline-none focus:border-emerald-500/60" />
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
         <select id="protocolSelect" class="rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm"><option value="">All protocols</option><option>http</option><option>https</option><option>socks4</option><option>socks5</option></select>
@@ -35,11 +35,13 @@
         <div id="routeInfo" class="rounded-xl border border-zinc-800 bg-black/20 px-3 py-2.5 text-xs text-zinc-500 xl:col-span-2">No preview session yet.</div>
       </div>
     </section>
+
     <section class="mt-4 overflow-hidden rounded-[1.75rem] border border-zinc-800 bg-[#080d0a] shadow-2xl shadow-black/30">
       <div class="flex items-center justify-between border-b border-zinc-800 bg-black/20 px-4 py-3"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-rose-400/80"></span><span class="h-2.5 w-2.5 rounded-full bg-amber-300/80"></span><span class="h-2.5 w-2.5 rounded-full bg-emerald-400/80"></span></div><div id="frameStatus" class="text-xs text-zinc-500">Safe preview idle</div><div class="w-14"></div></div>
       <iframe id="previewFrame" title="NekoRoute safe website preview" sandbox="allow-scripts" referrerpolicy="no-referrer" class="block h-[72vh] min-h-[560px] w-full bg-white" srcdoc="<!doctype html><html><body style='margin:0;background:#050807;color:#a1a1aa;font:16px system-ui;display:grid;place-items:center;height:100vh'>Enter an allowlisted URL and press Open.</body></html>"></iframe>
     </section>
-    <div class="mt-4 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/70">Safe Preview is intentionally not a full anonymous browser. Remote scripts, forms, cookies, service workers, WebSockets and authentication are disabled. JavaScript-heavy sites may show only their server-rendered shell. Add only domains you own or are authorized to test to <code>ALLOWED_TEST_HOSTS</code>.</div>
+
+    <div class="mt-4 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/70"><b>Public professional-use notice:</b> Safe Preview is intentionally not a full anonymous browser. Remote scripts, forms, cookies, service workers, WebSockets and authentication are disabled. The operator controls which domains can be previewed with <code>ALLOWED_TEST_HOSTS</code>; users are responsible for complying with applicable laws and site terms.</div>
   </main>
   <script src="/preview.js" type="module"></script>
 </body></html>
