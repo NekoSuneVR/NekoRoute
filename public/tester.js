@@ -60,14 +60,13 @@ async function init() {
   stats = await statsRes.json();
   const config = await configRes.json();
   fillFilters();
-  $('#allowlistInfo').textContent = `Allowed hosts: ${(config.allowedTestHosts || []).join(', ') || 'none'} · maximum ${config.matrixMaxNodes || 20} proxies per run`;
+  $('#allowlistInfo').textContent = `Public availability tester · HTTP/HTTPS ports 80/443 only · private/reserved networks blocked · maximum ${config.matrixMaxNodes || 12} proxies per run · rate limits apply`;
   await loadNodes();
 }
 
 for (const id of ['regionSelect','countrySelect','protocolSelect']) $('#'+id).addEventListener('change', loadNodes);
 
 $('#runBtn').addEventListener('click', async () => {
-  const token = $('#adminToken').value;
   const body = {
     url: $('#testUrl').value,
     region: $('#regionSelect').value || undefined,
@@ -80,7 +79,7 @@ $('#runBtn').addEventListener('click', async () => {
   $('#runBtn').textContent = 'Testing…';
   $('#resultMeta').textContent = 'Running requests through selected exits…';
   try {
-    const res = await fetch('/api/test-matrix', { method:'POST', headers:{'content-type':'application/json','x-admin-token':token}, body:JSON.stringify(body) });
+    const res = await fetch('/api/test-matrix', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     lastResult = data;
