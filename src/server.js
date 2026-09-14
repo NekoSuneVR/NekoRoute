@@ -131,7 +131,21 @@ let sweepBusy = false;
 const refresh = async () => {
   if (sourceBusy) return;
   sourceBusy = true;
-  try { const r=await pool.refreshSources(); console.log(`[sources] loaded ${r.count} proxies`); }
+  try {
+    const r = await pool.refreshSources();
+    console.log(`[sources] ${r.retained ? 'retained' : 'loaded'} ${r.count} proxies`);
+    for (const stat of r.sourceStats || []) {
+      if (stat.ok) {
+        console.log(`[sources:${stat.source}] ${stat.count} proxies${stat.endpoint ? ` via ${stat.endpoint}` : ''}`);
+        for (const failed of stat.fallbackErrors || []) {
+          console.warn(`[sources:${stat.source}] fallback failed ${failed.endpoint}: ${failed.error}`);
+        }
+      } else {
+        const detail = (stat.errors || []).map(x => `${x.endpoint}: ${x.error}`).join(' | ');
+        console.error(`[sources:${stat.source}] failed${detail ? ` - ${detail}` : ''}`);
+      }
+    }
+  }
   catch (e) { console.error('[sources]', e.message); }
   finally { sourceBusy = false; }
 };
