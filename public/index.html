@@ -21,6 +21,7 @@
       <nav class="hidden items-center gap-2 sm:flex">
         <a href="/tester" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300">Site Tester</a>
         <a href="/preview" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300">Proxy Preview</a>
+        <a href="/scanner" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300">Malware Scanner</a>
       </nav>
       <div id="healthPill" class="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-400">Connecting…</div>
     </div>
@@ -32,7 +33,7 @@
         <div class="mb-6 max-w-2xl">
           <div class="mb-3 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">LIVE PROXY POOL</div>
           <h1 class="text-4xl font-black tracking-tight sm:text-5xl">Healthy egress nodes, grouped by <span class="text-emerald-400">region.</span></h1>
-          <p class="mt-4 text-zinc-400">Discover public HTTP, HTTPS, SOCKS4 and SOCKS5 nodes, compare HTTP behaviour across exits, and safely preview allowlisted sites.</p>
+          <p class="mt-4 text-zinc-400">Discover public HTTP, HTTPS, SOCKS4 and SOCKS5 nodes, compare regional HTTP behaviour, safely preview operator-approved sites, and inspect public domains for defensive security signals.</p>
         </div>
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div class="rounded-2xl border border-zinc-800 bg-black/25 p-4"><div class="text-xs text-zinc-500">Discovered</div><div id="statTotal" class="mt-1 text-2xl font-black">—</div></div>
@@ -43,41 +44,17 @@
       </div>
 
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-        <a href="/tester" class="group glass rounded-[2rem] border border-zinc-800 p-6 transition hover:-translate-y-0.5 hover:border-emerald-500/40">
-          <div class="flex items-start justify-between gap-4">
-            <div><div class="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Tool 01</div><h2 class="mt-2 text-2xl font-black">Site Tester</h2></div>
-            <span class="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-emerald-400">→</span>
-          </div>
-          <p class="mt-3 text-sm text-zinc-400">Run one URL through multiple healthy proxies and compare 200, 301, 403, 404, 429 and 5xx responses side-by-side.</p>
-        </a>
-        <a href="/preview" class="group glass rounded-[2rem] border border-zinc-800 p-6 transition hover:-translate-y-0.5 hover:border-emerald-500/40">
-          <div class="flex items-start justify-between gap-4">
-            <div><div class="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Tool 02</div><h2 class="mt-2 text-2xl font-black">Proxy Preview</h2></div>
-            <span class="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-emerald-400">→</span>
-          </div>
-          <p class="mt-3 text-sm text-zinc-400">Open an allowlisted website through one selected exit with a browser-style URL bar, reload, back/forward and route details.</p>
-        </a>
+        <a href="/tester" class="group glass rounded-[2rem] border border-zinc-800 p-6 transition hover:-translate-y-0.5 hover:border-emerald-500/40"><div class="flex items-start justify-between gap-4"><div><div class="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Tool 01</div><h2 class="mt-2 text-2xl font-black">Site Tester</h2></div><span class="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-emerald-400">→</span></div><p class="mt-3 text-sm text-zinc-400">Run one URL through multiple healthy proxies and compare 200, 301, 403, 404, 429 and 5xx responses side-by-side.</p></a>
+        <a href="/preview" class="group glass rounded-[2rem] border border-zinc-800 p-6 transition hover:-translate-y-0.5 hover:border-emerald-500/40"><div class="flex items-start justify-between gap-4"><div><div class="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Tool 02</div><h2 class="mt-2 text-2xl font-black">Proxy Preview</h2></div><span class="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-emerald-400">→</span></div><p class="mt-3 text-sm text-zinc-400">Open an allowlisted website through one selected exit with a browser-style URL bar, reload, back/forward and route details.</p></a>
+        <a href="/scanner" class="group glass rounded-[2rem] border border-zinc-800 p-6 transition hover:-translate-y-0.5 hover:border-emerald-500/40"><div class="flex items-start justify-between gap-4"><div><div class="text-xs font-bold uppercase tracking-[.22em] text-emerald-400">Tool 03</div><h2 class="mt-2 text-2xl font-black">Malware Scanner</h2></div><span class="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-emerald-400">→</span></div><p class="mt-3 text-sm text-zinc-400">Fetch a public site through a selected proxy without executing scripts, then inspect redirects, headers, forms, download links and optional reputation signals.</p></a>
       </div>
     </section>
 
-    <section class="mt-7">
-      <div class="mb-3 flex items-end justify-between gap-3"><div><h2 class="text-xl font-black">World regions</h2><p class="text-sm text-zinc-500">Pick a region, then narrow by country and protocol.</p></div><button id="clearFilters" class="text-sm text-emerald-400 hover:text-emerald-300">Clear filters</button></div>
-      <div id="regionGrid" class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6"></div>
-    </section>
+    <section class="mt-7"><div class="mb-3 flex items-end justify-between gap-3"><div><h2 class="text-xl font-black">World regions</h2><p class="text-sm text-zinc-500">Pick a region, then narrow by country and protocol.</p></div><button id="clearFilters" class="text-sm text-emerald-400 hover:text-emerald-300">Clear filters</button></div><div id="regionGrid" class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6"></div></section>
 
-    <section class="mt-7 glass rounded-[2rem] border border-zinc-800 p-5">
-      <div class="grid gap-3 md:grid-cols-4">
-        <label class="text-xs text-zinc-500">Region<select id="regionSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"></select></label>
-        <label class="text-xs text-zinc-500">Country<select id="countrySelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"></select></label>
-        <label class="text-xs text-zinc-500">Protocol<select id="protocolSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"><option value="">All protocols</option><option>http</option><option>https</option><option>socks4</option><option>socks5</option></select></label>
-        <label class="text-xs text-zinc-500">State<select id="statusSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"><option value="online">Online only</option><option value="">All states</option><option value="degraded">Degraded</option><option value="offline">Offline</option><option value="unknown">Unchecked</option></select></label>
-      </div>
-    </section>
+    <section class="mt-7 glass rounded-[2rem] border border-zinc-800 p-5"><div class="grid gap-3 md:grid-cols-4"><label class="text-xs text-zinc-500">Region<select id="regionSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"></select></label><label class="text-xs text-zinc-500">Country<select id="countrySelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"></select></label><label class="text-xs text-zinc-500">Protocol<select id="protocolSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"><option value="">All protocols</option><option>http</option><option>https</option><option>socks4</option><option>socks5</option></select></label><label class="text-xs text-zinc-500">State<select id="statusSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"><option value="online">Online only</option><option value="">All states</option><option value="degraded">Degraded</option><option value="offline">Offline</option><option value="unknown">Unchecked</option></select></label></div></section>
 
-    <section class="mt-5 overflow-hidden rounded-[2rem] border border-zinc-800 bg-[#080d0a]/80">
-      <div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4"><div><h2 class="font-black">Proxy nodes</h2><p id="tableSummary" class="text-xs text-zinc-500">Loading…</p></div><button id="reloadBtn" class="rounded-xl border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500/40">Reload</button></div>
-      <div class="overflow-x-auto"><table class="w-full min-w-[850px] text-left text-sm"><thead class="text-xs uppercase tracking-wider text-zinc-500"><tr><th class="px-5 py-3">Node</th><th class="px-4 py-3">Location</th><th class="px-4 py-3">Protocol</th><th class="px-4 py-3">Latency</th><th class="px-4 py-3">Reliability</th><th class="px-4 py-3">Status</th><th class="px-5 py-3">Last check</th></tr></thead><tbody id="proxyRows" class="divide-y divide-zinc-900"></tbody></table></div>
-    </section>
+    <section class="mt-5 overflow-hidden rounded-[2rem] border border-zinc-800 bg-[#080d0a]/80"><div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4"><div><h2 class="font-black">Proxy nodes</h2><p id="tableSummary" class="text-xs text-zinc-500">Loading…</p></div><button id="reloadBtn" class="rounded-xl border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500/40">Reload</button></div><div class="overflow-x-auto"><table class="w-full min-w-[850px] text-left text-sm"><thead class="text-xs uppercase tracking-wider text-zinc-500"><tr><th class="px-5 py-3">Node</th><th class="px-4 py-3">Location</th><th class="px-4 py-3">Protocol</th><th class="px-4 py-3">Latency</th><th class="px-4 py-3">Reliability</th><th class="px-4 py-3">Status</th><th class="px-5 py-3">Last check</th></tr></thead><tbody id="proxyRows" class="divide-y divide-zinc-900"></tbody></table></div></section>
 
     <div class="mt-6 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/70">Public proxies are untrusted infrastructure. Don’t send passwords, cookies, private API keys, payment data, or other sensitive traffic through them. “Online” means a recent check succeeded; it cannot guarantee zero downtime.</div>
   </main>
