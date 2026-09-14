@@ -17,10 +17,6 @@ function isPrivateIp(ip) {
     a >= 224;
 }
 
-function hostAllowed(hostname, allowedHosts) {
-  const h = hostname.toLowerCase().replace(/\.$/, '');
-  return allowedHosts.some(base => h === base || h.endsWith(`.${base}`));
-}
 
 async function validateCommon(rawUrl) {
   let url;
@@ -48,8 +44,3 @@ export async function validatePublicTarget(rawUrl) {
   return validateCommon(rawUrl);
 }
 
-export async function validateTarget(rawUrl, allowedHosts) {
-  const url = await validateCommon(rawUrl);
-  if (!hostAllowed(url.hostname, allowedHosts)) throw new Error('Target hostname is not in ALLOWED_TEST_HOSTS');
-  return url;
-}

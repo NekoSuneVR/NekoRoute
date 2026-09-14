@@ -2,7 +2,7 @@
 
 NekoRoute is a Dockerized, region-aware public web diagnostics dashboard for **regional availability, moderation checks, compatibility testing and defensive website analysis**.
 
-It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, continuously health-checks them, persists their history in SQLite, compares HTTP behaviour across regions, offers a restricted safe rendered preview, and can inspect a public website for suspicious indicators without executing the site's JavaScript.
+It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, continuously health-checks them, persists their history in SQLite, compares HTTP behaviour across regions, offers a sandboxed safe rendered preview, and can inspect a public website for suspicious indicators without executing the site's JavaScript.
 
 > **Use notice:** NekoRoute is intended for professional/defensive diagnostics. Users are responsible for complying with applicable law and website terms. The project does not guarantee anonymity, and the safe preview is intentionally not an unrestricted web relay.
 
@@ -29,7 +29,7 @@ For safety it only permits ordinary HTTP/HTTPS web traffic on ports 80 and 443, 
 
 ### Safe Proxy Preview `/preview`
 
-Safe Preview is also public, but the **operator controls the allowed target domains** through `ALLOWED_TEST_HOSTS`. That keeps an Internet-facing deployment from becoming an unrestricted anonymous relay.
+Safe Preview is public and accepts **any public HTTP/HTTPS domain**. Every target and rewritten resource is still validated: private/reserved networks, URL credentials, non-HTTP(S) schemes, and non-standard web ports are blocked. Preview remains a sandboxed rendered view rather than a transparent general-purpose proxy.
 
 The preview rewrites HTML/CSS/images/fonts through the selected proxy while disabling remote scripts, cookies, forms, authentication, WebSockets and service workers. JavaScript-heavy websites can therefore show only their server-rendered shell.
 
@@ -91,7 +91,6 @@ PUBLIC_RATE_LIMIT_MAX=60
 SCAN_RATE_LIMIT_MAX=12
 STORE_SCAN_HISTORY=false
 
-ALLOWED_TEST_HOSTS=example.com,my-company.example
 EXPOSE_NODE_ADDRESSES=false
 ```
 
@@ -134,7 +133,7 @@ x-admin-token: YOUR_ADMIN_TOKEN
 
 ## Abuse resistance
 
-Public diagnostic routes include rate limiting. Public arbitrary targets are limited to HTTP/HTTPS on ports 80/443 and cannot resolve to private/reserved networks. Safe Preview adds an additional operator-controlled hostname allowlist.
+Public diagnostic routes include rate limiting. Tester, Scanner, and Safe Preview accept arbitrary public HTTP/HTTPS targets on ports 80/443, while private/reserved networks, embedded URL credentials, non-web schemes, and non-standard ports are blocked.
 
 These controls should remain enabled on public deployments. They reduce SSRF, internal-network probing, generic port-scanning and open-relay abuse.
 
