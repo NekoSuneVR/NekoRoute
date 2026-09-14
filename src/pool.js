@@ -32,6 +32,15 @@ export class ProxyPool {
   async refreshSources() {
     const { proxies, sourceStats } = await fetchProxySources(this.config.maxProxies);
     const old = this.nodes;
+
+    // Never erase the last known pool just because every upstream source is temporarily unavailable.
+    if (!proxies.length && old.size) {
+      this.sourceStats = sourceStats;
+      this.lastSourceRefresh = new Date().toISOString();
+      await this.saveState();
+      return { count: old.size, retained: true, sourceStats };
+    }
+
     const next = new Map();
     for (const incoming of proxies) {
       const previous = old.get(incoming.id);
