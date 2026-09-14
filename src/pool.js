@@ -3,6 +3,7 @@ import pLimit from 'p-limit';
 import { fetchProxySources } from './sources.js';
 import { requestViaProxy } from './proxy.js';
 import { initDatabase, ProxyNode, getState, setState, persistNodes } from './database.js';
+import { regionForCountry } from './regions.js';
 
 export class ProxyPool {
   constructor(config) {
@@ -21,8 +22,11 @@ export class ProxyPool {
 
     const rows = await ProxyNode.findAll({ raw: true });
     for (const row of rows) {
+      const country = String(row.country || 'XX').toUpperCase() === 'UK' ? 'GB' : String(row.country || 'XX').toUpperCase();
       const node = {
         ...row,
+        country,
+        region: regionForCountry(country),
         lastCheck: row.lastCheck ? new Date(row.lastCheck).toISOString() : null,
         lastSuccess: row.lastSuccess ? new Date(row.lastSuccess).toISOString() : null,
         firstSeen: row.firstSeen ? new Date(row.firstSeen).toISOString() : null,

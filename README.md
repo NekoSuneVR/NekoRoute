@@ -1,67 +1,99 @@
-# NekoRoute
+# NekoRoute v0.4
 
-NekoRoute is a Dockerized, region-aware public web diagnostics dashboard for **regional availability, moderation checks, compatibility testing and defensive website analysis**.
+NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a browser-like proxied preview, and scans public websites using local heuristics plus optional threat-intelligence providers.
 
-It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, continuously health-checks them, persists their history in SQLite, compares HTTP behaviour across regions, offers a sandboxed safe rendered preview, and can inspect a public website for suspicious indicators without executing the site's JavaScript.
+> **Responsible-use notice:** Users are responsible for complying with applicable law and website terms. Public proxies are third-party infrastructure. NekoRoute does not guarantee anonymity, privacy, safety, availability, or that a target leaves no trace at the VPS/network-provider layer.
 
-> **Use notice:** NekoRoute is intended for professional/defensive diagnostics. Users are responsible for complying with applicable law and website terms. The project does not guarantee anonymity, and the safe preview is intentionally not an unrestricted web relay.
-
-## Main tools
+## Tools
 
 ### Dashboard `/`
 
-- Public proxy pool health and regional/country/protocol filters.
-- `online`, `degraded`, `offline`, and `unknown` status.
-- Latency, reliability, last-success and health history.
-- Public node addresses are hidden unless `EXPOSE_NODE_ADDRESSES=true`.
+- Persistent SQLite proxy inventory and health history.
+- Full country names such as `France (FR)` and `United Kingdom (GB)`.
+- Clean responsive region cards instead of the old geographic mosaic layout.
+- Filters by region, country, protocol and online/degraded/offline state.
 
 ### Site Tester `/tester`
 
-The Site Tester is public and does not require the admin token. It checks a normal public HTTP/HTTPS URL through multiple healthy exits and compares:
+Compare one public HTTP/HTTPS URL across multiple healthy exits. Results include HTTP status, redirect, latency, country, region and protocol.
 
-- 2xx / 3xx / 403 / 404 / 429 / 5xx behaviour
-- redirects
-- latency
-- country/region/protocol
-- timeout and connection errors
+### Proxy Preview `/preview`
 
-For safety it only permits ordinary HTTP/HTTPS web traffic on ports 80 and 443, rejects credentials in URLs, and rejects loopback/private/link-local/CGNAT/reserved destinations.
+The preview remains deliberately safer than a transparent open proxy, but is now more browser-like:
 
-### Safe Proxy Preview `/preview`
+- Back / forward / reload and URL bar.
+- Proxied page-to-page navigation.
+- Simple `GET`/search forms work through the selected exit.
+- Images, CSS, fonts and page-linked audio/video resources are fetched through the same proxy.
+- Page-linked media/image/PDF downloads are tokenised per preview session and can be downloaded through the same proxy.
+- Remote third-party JavaScript, cookies, authentication, POST forms, service workers and WebSockets remain disabled.
+- Private/reserved destinations and non-standard web ports remain blocked.
 
-Safe Preview is public and accepts **any public HTTP/HTTPS domain**. Every target and rewritten resource is still validated: private/reserved networks, URL credentials, non-HTTP(S) schemes, and non-standard web ports are blocked. Preview remains a sandboxed rendered view rather than a transparent general-purpose proxy.
-
-The preview rewrites HTML/CSS/images/fonts through the selected proxy while disabling remote scripts, cookies, forms, authentication, WebSockets and service workers. JavaScript-heavy websites can therefore show only their server-rendered shell.
+Resource endpoints use per-session tokens instead of accepting arbitrary resource URLs, which prevents the media route from becoming an unrestricted binary relay.
 
 ### Malware & Domain Scanner `/scanner`
 
-The scanner fetches a public HTTP/HTTPS URL through a selected healthy proxy without executing remote JavaScript. It reports heuristic indicators such as:
+The scanner fetches a public website through the selected proxy without executing remote JavaScript and combines:
 
-- security header presence
-- redirect chain
-- cross-domain form submissions
-- password fields combined with cross-domain forms
-- executable/installable download links
-- iframe density
-- meta refresh
-- common obfuscation/dynamic-code patterns such as `eval`, `Function`, `atob`, large base64-like blobs and `document.write`
+- NekoRoute local HTML/header/redirect heuristics.
+- **OpenPhish Community feed** cached locally (no API key and no remote lookup per scan).
+- Optional **ClamAV** sidecar for fully self-hosted content scanning with no API key.
+- Optional VirusTotal API v3.
+- Optional Google Web Risk.
 
-Optional reputation lookups are supported with environment keys for:
+OpenPhish/community-provider terms still apply. The local cache means there is no provider request for each visitor scan, but the feed itself should only be refreshed at a reasonable interval. NekoRoute defaults to 12 hours.
 
-- **VirusTotal API v3** — NekoRoute looks up an existing URL report and does not automatically submit unknown URLs.
-- **Google Web Risk Lookup API** — checks malware, social-engineering and unwanted-software lists.
+## SQLite persistence
 
-Scanner findings are indicators, not a guarantee that a website is safe or malicious. Target page content is fetched through the selected proxy. Optional reputation-provider lookups are made directly by NekoRoute so API keys are never sent through an untrusted public proxy. `STORE_SCAN_HISTORY=false` is the default, so visitor scan targets/results are not persisted by the application unless the operator opts in.
+NekoRoute uses Sequelize + SQLite at:
 
-## Persistent SQLite proxy state
+```text
+/app/data/nekoroute.sqlite
+```
 
-NekoRoute v0.3 uses **Sequelize + SQLite** at `/app/data/nekoroute.sqlite`.
+Nodes are never deleted simply because they go offline. Their status/history remains in SQLite and the health cursor is persisted so checks resume where they stopped after a restart. Offline nodes continue to be revisited and can return to `online` later.
 
-The database stores every discovered node and its health history. A source refresh **does not delete missing nodes**. If a public node disappears, NekoRoute keeps it, marks it offline/degraded through normal health checks, and revisits it later so it can recover automatically.
+## Public API v1
 
-The health-check cursor is persisted too, so a container restart continues from the previous position instead of always starting at node 0. Existing `/app/data/proxy-state.json` data is migrated into SQLite automatically when the database is initially empty.
+API discovery:
 
-## Run with Docker Compose
+```text
+GET /api/v1
+GET /api/openapi.json
+```
+
+Useful endpoints:
+
+```text
+GET  /api/v1/health
+GET  /api/v1/stats
+GET  /api/v1/regions
+GET  /api/v1/countries?region=Europe
+GET  /api/v1/nodes?status=online&country=FR&protocol=socks5
+GET  /api/v1/threat-intel
+POST /api/v1/test
+POST /api/v1/test-matrix
+POST /api/v1/scan
+POST /api/v1/preview/session
+```
+
+The older `/api/...` endpoints remain for compatibility.
+
+Example test request:
+
+```bash
+curl -sS https://proxyweb.example.com/api/v1/test-matrix \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/","country":"FR","limit":8}'
+```
+
+Example node list:
+
+```bash
+curl -sS 'https://proxyweb.example.com/api/v1/nodes?status=online&region=Europe&limit=100'
+```
+
+## Run
 
 ```bash
 cp .env.example .env
@@ -75,11 +107,32 @@ Open:
 
 ```text
 http://SERVER-IP:3210/
+http://SERVER-IP:3210/tester
+http://SERVER-IP:3210/preview
+http://SERVER-IP:3210/scanner
 ```
 
-For a public deployment, put NekoRoute behind HTTPS/reverse proxying and set `TRUST_PROXY=true` only when your reverse proxy is trusted and correctly strips client-supplied forwarding headers.
+## Optional ClamAV
 
-## Recommended `.env`
+For self-hosted, no-key ClamAV scanning:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.clamav.yml \
+  up -d --build
+```
+
+The overlay configures:
+
+```dotenv
+CLAMAV_HOST=clamav
+CLAMAV_PORT=3310
+```
+
+ClamAV signature data is kept in its own Docker volume.
+
+## Recommended environment
 
 ```dotenv
 PORT=3210
@@ -91,54 +144,17 @@ PUBLIC_RATE_LIMIT_MAX=60
 SCAN_RATE_LIMIT_MAX=12
 STORE_SCAN_HISTORY=false
 
+OPENPHISH_ENABLED=true
+THREAT_FEED_REFRESH_MS=43200000
+THREAT_FEED_CACHE_PATH=/app/data/openphish-cache.json
+
 EXPOSE_NODE_ADDRESSES=false
 ```
 
-`ADMIN_TOKEN` is maintenance-only. It protects:
+`ADMIN_TOKEN` is maintenance-only and protects forced refresh/sweep endpoints. Normal visitor tools do not require it.
 
-- `POST /api/admin/refresh`
-- `POST /api/admin/sweep`
+## Safety controls
 
-Visitors do **not** need it for the Site Tester, Safe Preview session creation, or Malware Scanner.
+Public URLs are restricted to HTTP/HTTPS ports 80/443. NekoRoute rejects localhost/private/link-local/CGNAT/reserved targets and credentials embedded in URLs. Preview resource downloads must first be discovered from a page inside that preview session and are represented by opaque tokens.
 
-## API overview
-
-Public read/diagnostic endpoints:
-
-```text
-GET  /api/health
-GET  /api/stats
-GET  /api/config
-GET  /api/proxies
-POST /api/test-route
-POST /api/test-matrix
-POST /api/preview-session
-GET  /api/preview/:sessionId
-GET  /api/preview-resource/:sessionId
-POST /api/scan
-```
-
-Maintenance endpoints:
-
-```text
-POST /api/admin/refresh
-POST /api/admin/sweep
-```
-
-Send the maintenance token as:
-
-```text
-x-admin-token: YOUR_ADMIN_TOKEN
-```
-
-## Abuse resistance
-
-Public diagnostic routes include rate limiting. Tester, Scanner, and Safe Preview accept arbitrary public HTTP/HTTPS targets on ports 80/443, while private/reserved networks, embedded URL credentials, non-web schemes, and non-standard ports are blocked.
-
-These controls should remain enabled on public deployments. They reduce SSRF, internal-network probing, generic port-scanning and open-relay abuse.
-
-## Optional VPN sidecar
-
-The existing Gluetun example can provide a trusted SOCKS5 sidecar using OpenVPN or WireGuard. Add it as a `STATIC_PROXY_NODES` entry if you operate an authorised exit yourself.
-
-Public scraped proxy nodes are untrusted. Do not send passwords, cookies, API keys, payment details, or other sensitive data through them.
+Public proxies are untrusted. Do not send passwords, cookies, API keys, payment data or other sensitive information through them.

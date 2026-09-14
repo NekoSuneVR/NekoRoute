@@ -5,7 +5,8 @@ const SOURCE_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SOURCE_FETC
 const MAX_SOURCE_BYTES = Math.max(1024 * 1024, Number.parseInt(process.env.MAX_SOURCE_BYTES || String(32 * 1024 * 1024), 10));
 
 function normalizeCountry(value) {
-  const v = String(value || 'XX').trim().toUpperCase();
+  let v = String(value || 'XX').trim().toUpperCase();
+  if (v === 'UK') v = 'GB';
   return /^[A-Z]{2}$/.test(v) ? v : 'XX';
 }
 

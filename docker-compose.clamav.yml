@@ -1,0 +1,29 @@
+# Optional overlay for fully self-hosted, no-API-key ClamAV scanning.
+# Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.clamav.yml up -d --build
+services:
+  nekoroute:
+    environment:
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+    depends_on:
+      clamav:
+        condition: service_healthy
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: nekoroute-clamav
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  clamav_data:
