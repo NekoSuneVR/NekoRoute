@@ -1,4 +1,4 @@
-import { esc, flag, countryName, countryLabel, regions } from '/common.js?v=1789394865';
+import { esc, flag, countryName, countryLabel, regions, createNodePager } from '/common.js?v=0500-20260914T1510';
 
 const $ = s => document.querySelector(s);
 const value = (s, fallback = '') => $(s)?.value ?? fallback;
@@ -21,14 +21,11 @@ function fillFilters() {
   setHtml('#countrySelect', '<option value="">All countries</option>' + countries.map(([c,n]) => `<option value="${esc(c)}">${esc(countryLabel(c))} · ${n}</option>`).join(''));
 }
 
-async function loadNodes() {
-  const q = new URLSearchParams({ status:'online', limit:'250' });
-  const region = value('#regionSelect'); const country = value('#countrySelect'); const protocol = value('#protocolSelect');
-  if (region) q.set('region', region); if (country) q.set('country', country); if (protocol) q.set('protocol', protocol);
-  const res = await fetch('/api/proxies?' + q);
-  const nodes = await res.json();
-  setHtml('#nodeSelect', '<option value="">Auto / multiple</option>' + nodes.map(n => `<option value="${esc(n.ref)}">${esc(countryLabel(n.country))} · ${esc(n.protocol)} · ${esc(n.city || 'Unknown')} · ${n.latencyMs ?? '—'}ms</option>`).join(''));
-}
+const nodePager=createNodePager({
+  select:$('#nodeSelect'),previous:$('#nodePrev'),next:$('#nodeNext'),label:$('#nodePage'),pageSize:50,autoLabel:'Auto / multiple',
+  getFilters:()=>({region:value('#regionSelect'),country:value('#countrySelect'),protocol:value('#protocolSelect')})
+});
+const loadNodes=(reset=true)=>nodePager.load({reset});
 
 function renderSummary(results) {
   const count = test => results.filter(test).length;
@@ -48,10 +45,10 @@ async function init() {
   const [statsRes, configRes] = await Promise.all([fetch('/api/stats'), fetch('/api/config')]);
   stats = await statsRes.json(); const config = await configRes.json(); fillFilters();
   setText('#allowlistInfo', `Public availability tester · HTTP/HTTPS ports 80/443 only · private/reserved networks blocked · maximum ${config.matrixMaxNodes || 12} proxies per run · rate limits apply`);
-  await loadNodes();
+  await loadNodes(true);
 }
 
-for (const id of ['regionSelect','countrySelect','protocolSelect']) $('#'+id)?.addEventListener('change', loadNodes);
+for (const id of ['regionSelect','countrySelect','protocolSelect']) $('#'+id)?.addEventListener('change', ()=>loadNodes(true));
 $('#runBtn')?.addEventListener('click', async () => {
   const body = { url:value('#testUrl'), region:value('#regionSelect')||undefined, country:value('#countrySelect')||undefined, protocol:value('#protocolSelect')||undefined, nodeRef:value('#nodeSelect')||undefined, limit:Number(value('#limitSelect','8')||8) };
   const runBtn=$('#runBtn'); if(runBtn){runBtn.disabled=true;runBtn.textContent='Testing…';} setText('#resultMeta','Running requests through selected exits…');

@@ -1,8 +1,8 @@
-# NekoRoute v0.4.2
+# NekoRoute v0.5.0
 
-NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a browser-like proxied preview, and scans public websites using local heuristics plus optional threat-intelligence providers.
+NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a safe server-side preview, and can hand a selected route to an optional **local Firefox Bridge** for full browser compatibility and direct-to-PC downloads.
 
-> **Responsible-use notice:** Users are responsible for complying with applicable law and website terms. Public proxies are third-party infrastructure. NekoRoute does not guarantee anonymity, privacy, safety, availability, or that a target leaves no trace at the VPS/network-provider layer.
+> **Responsible-use notice:** Users are responsible for complying with applicable law and website terms. Public proxies are third-party infrastructure. NekoRoute does not guarantee anonymity, privacy, safety or availability. Do not send passwords, private tokens, payment data or other sensitive traffic through random public proxies.
 
 ## Tools
 
@@ -10,38 +10,71 @@ NekoRoute is a Dockerized regional availability, moderation and defensive websit
 
 - Persistent SQLite proxy inventory and health history.
 - Full country names such as `France (FR)` and `United Kingdom (GB)`.
-- Clean responsive region cards instead of the old geographic mosaic layout.
-- Filters by region, country, protocol and online/degraded/offline state.
+- Filters by region, country, protocol and state.
+- **Paginated proxy table** with 25/50/100/200 rows per page.
 
 ### Site Tester `/tester`
 
 Compare one public HTTP/HTTPS URL across multiple healthy exits. Results include HTTP status, redirect, latency, country, region and protocol.
 
-### Proxy Preview `/preview`
+The specific-node selector is paginated (50 nodes per page) instead of loading hundreds of `<option>` rows at once.
 
-The preview remains deliberately safer than a transparent open proxy, but is now more browser-like:
+### Safe Proxy Preview `/preview`
+
+The server-side preview remains intentionally safer than a transparent browser:
 
 - Back / forward / reload and URL bar.
 - Proxied page-to-page navigation.
-- Simple `GET`/search forms work through the selected exit.
-- Images, CSS, fonts and page-linked audio/video resources are fetched through the same proxy.
-- Page-linked media/image/PDF downloads are tokenised per preview session and can be downloaded through the same proxy.
+- Simple `GET`/search forms.
+- Images, CSS, fonts and discovered audio/video/PDF resources through the same selected proxy.
+- Tokenised page-linked downloads.
+- Client-rendered pages receive an extracted fallback instead of a silent blank page.
 - Remote third-party JavaScript, cookies, authentication, POST forms, service workers and WebSockets remain disabled.
-- Private/reserved destinations and non-standard web ports remain blocked.
 
-Resource endpoints use per-session tokens instead of accepting arbitrary resource URLs, which prevents the media route from becoming an unrestricted binary relay.
+Use **Open in real Firefox** when a site requires JavaScript or normal browser behaviour.
+
+### Real Firefox Bridge `/browser`
+
+This is the v0.5 feature for sites that cannot work in the safe preview.
+
+The optional Firefox extension:
+
+1. Receives a short-lived, one-time NekoRoute route ticket.
+2. Opens the target in a **real Firefox tab on the visitor's own PC**.
+3. Routes that tab through the selected HTTP/HTTPS/SOCKS4/SOCKS5 public proxy.
+4. Allows ordinary JavaScript, cookies, browser media handling, forms and navigation because the site is running in actual Firefox.
+5. Lets Firefox save downloads **directly to the visitor's computer**. NekoRoute does not spool those browser-mode files onto the VPS.
+
+This architecture is intentional: a Firefox instance physically running inside a Docker/VNC session on the VPS would necessarily receive/download the file on the server first. A website also cannot silently change a user's local Firefox proxy settings. The bridge extension is the way to satisfy both “real Firefox” and “download straight to my PC”.
+
+The bridge defaults to trusting:
+
+```text
+https://proxyweb.nekosunevr.co.uk
+```
+
+Self-hosted users can add their own NekoRoute origin in the extension options.
+
+Development extension source/download:
+
+```text
+/firefox-extension/
+/downloads/nekoroute-firefox-bridge.zip
+```
+
+For permanent one-click public installation in normal Firefox, the extension should be signed through Mozilla Add-ons. For development, load `manifest.json` from `about:debugging#/runtime/this-firefox`.
+
+The bridge also supports optional leak protection while routed tabs exist: Firefox network prediction is temporarily disabled and WebRTC is set to proxy-only, then the previous settings are restored after the final routed tab closes.
 
 ### Malware & Domain Scanner `/scanner`
 
 The scanner fetches a public website through the selected proxy without executing remote JavaScript and combines:
 
 - NekoRoute local HTML/header/redirect heuristics.
-- **OpenPhish Community feed** cached locally (no API key and no remote lookup per scan).
-- Optional **ClamAV** sidecar for fully self-hosted content scanning with no API key.
+- OpenPhish Community feed cached locally.
+- Optional self-hosted ClamAV.
 - Optional VirusTotal API v3.
 - Optional Google Web Risk.
-
-OpenPhish/community-provider terms still apply. The local cache means there is no provider request for each visitor scan, but the feed itself should only be refreshed at a reasonable interval. NekoRoute defaults to 12 hours.
 
 ## SQLite persistence
 
@@ -51,16 +84,48 @@ NekoRoute uses Sequelize + SQLite at:
 /app/data/nekoroute.sqlite
 ```
 
-Nodes are never deleted simply because they go offline. Their status/history remains in SQLite and the health cursor is persisted so checks resume where they stopped after a restart. Offline nodes continue to be revisited and can return to `online` later.
+Nodes are not deleted just because they go offline. Their health history remains in SQLite, the health cursor is persisted across restarts, and offline nodes are revisited so they can become online again later.
+
+## Paginated node API
+
+The v1 node endpoint now returns a pagination object:
+
+```http
+GET /api/v1/nodes?status=online&country=FR&page=1&pageSize=50
+```
+
+Example response shape:
+
+```json
+{
+  "items": [],
+  "total": 543,
+  "page": 1,
+  "pageSize": 50,
+  "pages": 11,
+  "hasPrevious": false,
+  "hasNext": true
+}
+```
+
+`pageSize` is capped at 200.
+
+The compatibility endpoint remains an array and supports `limit` + `offset`:
+
+```http
+GET /api/proxies?status=online&limit=50&offset=100
+```
+
+It also returns `X-Total-Count`, `X-Offset` and `X-Limit` headers.
 
 ## Public API v1
 
-API documentation and discovery:
+Documentation:
 
 ```text
-GET /api/docs          # human-readable docs page
-GET /api/v1            # discovery JSON
-GET /api/openapi.json  # raw OpenAPI 3.1 JSON
+GET /api/docs
+GET /api/v1
+GET /api/openapi.json
 ```
 
 Useful endpoints:
@@ -70,29 +135,30 @@ GET  /api/v1/health
 GET  /api/v1/stats
 GET  /api/v1/regions
 GET  /api/v1/countries?region=Europe
-GET  /api/v1/nodes?status=online&country=FR&protocol=socks5
+GET  /api/v1/nodes?status=online&country=FR&page=1&pageSize=50
 GET  /api/v1/threat-intel
 POST /api/v1/test
 POST /api/v1/test-matrix
 POST /api/v1/scan
 POST /api/v1/preview/session
+GET  /api/v1/preview/session/:id/resources
+POST /api/v1/browser-ticket
+GET  /api/v1/browser-ticket/:ticket
 ```
 
-The older `/api/...` endpoints remain for compatibility.
+### Firefox Bridge ticket
 
-Example test request:
+Create a one-time ticket:
 
 ```bash
-curl -sS https://proxyweb.example.com/api/v1/test-matrix \
+curl -sS https://proxyweb.example.com/api/v1/browser-ticket \
   -H 'content-type: application/json' \
-  -d '{"url":"https://example.com/","country":"FR","limit":8}'
+  -d '{"url":"https://example.com/","country":"FR"}'
 ```
 
-Example node list:
+The public response contains the opaque ticket and selected node metadata, not the raw proxy address. The Firefox extension consumes `ticketUrl` once; that one-time response contains the raw public proxy host/port needed by Firefox.
 
-```bash
-curl -sS 'https://proxyweb.example.com/api/v1/nodes?status=online&region=Europe&limit=100'
-```
+Tickets expire quickly (`BROWSER_TICKET_TTL_MS`, default 90 seconds) and are removed after first successful consumption.
 
 ## Run
 
@@ -110,13 +176,12 @@ Open:
 http://SERVER-IP:3210/
 http://SERVER-IP:3210/tester
 http://SERVER-IP:3210/preview
+http://SERVER-IP:3210/browser
 http://SERVER-IP:3210/scanner
 http://SERVER-IP:3210/api/docs
 ```
 
 ## Optional ClamAV
-
-For self-hosted, no-key ClamAV scanning:
 
 ```bash
 docker compose \
@@ -124,15 +189,6 @@ docker compose \
   -f docker-compose.clamav.yml \
   up -d --build
 ```
-
-The overlay configures:
-
-```dotenv
-CLAMAV_HOST=clamav
-CLAMAV_PORT=3310
-```
-
-ClamAV signature data is kept in its own Docker volume.
 
 ## Recommended environment
 
@@ -152,21 +208,13 @@ THREAT_FEED_CACHE_PATH=/app/data/openphish-cache.json
 
 EXPOSE_NODE_ADDRESSES=false
 PREVIEW_TIMEOUT_MS=45000
+BROWSER_TICKET_TTL_MS=90000
 ```
 
-`ADMIN_TOKEN` is maintenance-only and protects forced refresh/sweep endpoints. Normal visitor tools do not require it.
+`ADMIN_TOKEN` is maintenance-only. Normal visitor tools do not require it.
 
 ## Safety controls
 
-Public URLs are restricted to HTTP/HTTPS ports 80/443. NekoRoute rejects localhost/private/link-local/CGNAT/reserved targets and credentials embedded in URLs. Preview resource downloads must first be discovered from a page inside that preview session and are represented by opaque tokens.
+Public server-side URL tools are restricted to HTTP/HTTPS ports 80/443. NekoRoute rejects localhost/private/link-local/CGNAT/reserved targets and credentials embedded in URLs.
 
-Public proxies are untrusted. Do not send passwords, cookies, API keys, payment data or other sensitive information through them.
-
-
-### v0.4.2 preview fallback and downloads
-
-- Client-rendered pages no longer collapse into an unexplained white view. If almost no server-rendered content remains after remote scripts are removed, Preview shows an extracted fallback with title/description/text, discovered page links and detected media URLs.
-- Media URLs found in normal elements, metadata, attributes and inline page source are registered as session-scoped download resources.
-- Page-linked media/download requests reuse the selected proxy, browser-compatible User-Agent and originating page Referer where available.
-- CSS `@import` URLs are rewritten through the selected proxy in addition to ordinary `url(...)` resources.
-- `GET /api/v1/preview/session/:id/resources` exposes the resources already discovered in an active preview session for external integrations.
+The local Firefox Bridge is different: after the route ticket is consumed, the visitor's Firefox communicates directly with the selected public proxy. The NekoRoute VPS is no longer in that page/download data path. The public proxy itself remains untrusted and can observe the visitor's connection to it.

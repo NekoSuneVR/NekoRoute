@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "NekoRoute Firefox Bridge",
+  "version": "0.5.0",
+  "description": "Open NekoRoute-selected routes in real local Firefox tabs so browsing and downloads stay on the user's PC while the tab uses the selected public proxy.",
+  "permissions": ["proxy", "tabs", "storage", "privacy"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Open NekoRoute Browser Bridge"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "firefox-bridge@nekoroute.local",
+      "strict_min_version": "121.0"
+    }
+  }
+}

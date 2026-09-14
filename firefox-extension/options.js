@@ -1,0 +1,4 @@
+const DEFAULT=['https://proxyweb.nekosunevr.co.uk'];
+async function load(){const d=await browser.storage.local.get(['allowedOrigins','leakProtection']);document.querySelector('#origins').value=(Array.isArray(d.allowedOrigins)?d.allowedOrigins:DEFAULT).join('\n');document.querySelector('#leakProtection').checked=d.leakProtection!==false;}
+document.querySelector('#save').addEventListener('click',async()=>{const lines=document.querySelector('#origins').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const origins=[];for(const line of lines){try{const u=new URL(line);if(!['http:','https:'].includes(u.protocol))continue;origins.push(u.origin);}catch{}}await browser.storage.local.set({allowedOrigins:[...new Set(origins)],leakProtection:document.querySelector('#leakProtection').checked});document.querySelector('#status').textContent=`Saved ${origins.length} trusted origin(s).`;});
+load();

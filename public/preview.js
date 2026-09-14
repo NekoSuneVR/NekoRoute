@@ -1,4 +1,4 @@
-import { esc, countryLabel, countryName, regions } from '/common.js?v=1789394865';
+import { esc, countryLabel, countryName, regions, createNodePager } from '/common.js?v=0500-20260914T1510';
 
 const $ = s => document.querySelector(s);
 const value = (s, fallback = '') => $(s)?.value ?? fallback;
@@ -16,13 +16,11 @@ function fillFilters() {
   setHtml('#countrySelect','<option value="">All countries</option>'+countries.map(([c,n])=>`<option value="${esc(c)}">${esc(countryLabel(c))} · ${n}</option>`).join(''));
 }
 
-async function loadNodes() {
-  const q=new URLSearchParams({status:'online',limit:'250'});
-  const region=value('#regionSelect'),country=value('#countrySelect'),protocol=value('#protocolSelect');
-  if(region)q.set('region',region);if(country)q.set('country',country);if(protocol)q.set('protocol',protocol);
-  const res=await fetch('/api/proxies?'+q);const nodes=await res.json();
-  setHtml('#nodeSelect','<option value="">Best healthy node automatically</option>'+nodes.map(n=>`<option value="${esc(n.ref)}">${esc(countryLabel(n.country))} · ${esc(n.protocol)} · ${esc(n.city||'Unknown')} · ${n.latencyMs??'—'}ms</option>`).join(''));
-}
+const nodePager=createNodePager({
+  select:$('#nodeSelect'),previous:$('#nodePrev'),next:$('#nodeNext'),label:$('#nodePage'),pageSize:50,
+  getFilters:()=>({region:value('#regionSelect'),country:value('#countrySelect'),protocol:value('#protocolSelect')})
+});
+const loadNodes=(reset=true)=>nodePager.load({reset});
 
 function updateHistoryButtons(){const back=$('#backBtn'),forward=$('#forwardBtn'),reload=$('#reloadBtn');if(back)back.disabled=historyIndex<=0;if(forward)forward.disabled=historyIndex<0||historyIndex>=history.length-1;if(reload)reload.disabled=!session||historyIndex<0;}
 function frameUrl(url){return `/api/preview/${encodeURIComponent(session.sessionId)}?url=${encodeURIComponent(url)}`;}
@@ -53,14 +51,16 @@ async function createSession(){
   navigate(data.url,{push:true});
 }
 
-for(const id of ['regionSelect','countrySelect','protocolSelect'])$('#'+id)?.addEventListener('change',loadNodes);
+for(const id of ['regionSelect','countrySelect','protocolSelect'])$('#'+id)?.addEventListener('change',()=>loadNodes(true));
 $('#goBtn')?.addEventListener('click',async()=>{const btn=$('#goBtn');if(btn){btn.disabled=true;btn.textContent='Opening…';}try{await createSession();}catch(error){setText('#routeInfo',error.message);setText('#frameStatus','Preview failed');}finally{if(btn){btn.disabled=false;btn.textContent='Open';}}});
 $('#urlInput')?.addEventListener('keydown',event=>{if(event.key==='Enter')$('#goBtn')?.click();});
+
+$('#realFirefoxBtn')?.addEventListener('click',()=>{const q=new URLSearchParams({url:value('#urlInput')});const region=value('#regionSelect'),country=value('#countrySelect'),protocol=value('#protocolSelect');if(region)q.set('region',region);if(country)q.set('country',country);if(protocol)q.set('protocol',protocol);location.href='/browser?'+q.toString();});
 $('#backBtn')?.addEventListener('click',()=>{if(historyIndex>0){historyIndex--;navigate(history[historyIndex],{push:false});}});
 $('#forwardBtn')?.addEventListener('click',()=>{if(historyIndex<history.length-1){historyIndex++;navigate(history[historyIndex],{push:false});}});
 $('#reloadBtn')?.addEventListener('click',()=>{if(historyIndex>=0)navigate(history[historyIndex],{push:false});});
 $('#previewFrame')?.addEventListener('load',()=>{if(frameWatchdog){clearTimeout(frameWatchdog);frameWatchdog=null;}setText('#frameStatus',session?`Proxied preview active · session expires ${new Date(session.expiresAt).toLocaleTimeString()}`:'Proxy preview');});
 window.addEventListener('message',event=>{const frame=$('#previewFrame');if(!frame||event.source!==frame.contentWindow)return;if(event.data?.type==='nekoroute-preview-nav'&&typeof event.data.url==='string')navigate(event.data.url,{push:true});});
 
-async function init(){const statsRes=await fetch('/api/stats');stats=await statsRes.json();fillFilters();await loadNodes();updateHistoryButtons();}
+async function init(){const statsRes=await fetch('/api/stats');stats=await statsRes.json();fillFilters();await loadNodes(true);updateHistoryButtons();}
 init().catch(error=>setText('#routeInfo',error.message));

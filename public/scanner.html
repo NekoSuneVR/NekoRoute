@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#07110b" />
   <title>NekoRoute — Malware & Domain Scanner</title>
-  <link rel="stylesheet" href="/app.css?v=1789394865" />
+  <link rel="stylesheet" href="/app.css?v=0500-20260914T1510" />
 </head>
 <body class="min-h-screen text-zinc-100 antialiased">
   <div class="fixed inset-0 -z-20 bg-[#050807]"></div>
@@ -13,7 +13,7 @@
   <header class="sticky top-0 z-30 border-b border-emerald-950/80 bg-[#050807]/90 backdrop-blur-xl">
     <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
       <a href="/" class="flex items-center gap-3"><div class="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-400/30 bg-emerald-500/10">✦</div><div><div class="font-black">NekoRoute</div><div class="text-xs text-zinc-500">Malware & Domain Scanner</div></div></a>
-      <nav class="flex flex-wrap items-center gap-2"><a href="/tester" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Site Tester</a><a href="/preview" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Proxy Preview</a><a href="/" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm">Dashboard</a><a href="/api/docs" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300">API</a></nav>
+      <nav class="flex flex-wrap items-center gap-2"><a href="/tester" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Site Tester</a><a href="/preview" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm hover:border-emerald-500/40">Proxy Preview</a><a href="/browser" class="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-300 hover:bg-emerald-500/10">Real Firefox</a><a href="/" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm">Dashboard</a><a href="/api/docs" class="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300">API</a></nav>
     </div>
   </header>
 
@@ -29,7 +29,7 @@
         <button id="scanBtn" class="self-end rounded-xl bg-emerald-400 px-5 py-2.5 font-black text-emerald-950 hover:bg-emerald-300">Scan</button>
       </div>
       <div class="mt-3 grid gap-3 md:grid-cols-3">
-        <label class="text-xs text-zinc-500 md:col-span-2">Specific node<select id="nodeSelect" class="mt-1 w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm"><option value="">Best healthy node automatically</option></select></label>
+        <div class="text-xs text-zinc-500 md:col-span-2">Specific node<select id="nodeSelect" class="mt-1 w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm"><option value="">Best healthy node automatically</option></select><div class="mt-2 flex items-center justify-between gap-2 text-[11px]"><button id="nodePrev" type="button" class="rounded-lg border border-zinc-800 px-2 py-1 disabled:opacity-30">← Prev</button><span id="nodePage">Loading…</span><button id="nodeNext" type="button" class="rounded-lg border border-zinc-800 px-2 py-1 disabled:opacity-30">Next →</button></div></div>
         <div id="providerInfo" class="rounded-xl border border-zinc-800 bg-black/20 px-4 py-3 text-xs text-zinc-500">Loading scanner configuration…</div>
       </div>
       <div class="mt-4 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/75"><b>Professional-use notice:</b> Local heuristics and the cached OpenPhish Community feed require no per-scan API key. Optional ClamAV is fully self-hosted. VirusTotal/Web Risk remain optional. Feed/provider terms still apply, and a low score is not a guarantee that a website is safe.</div>
@@ -53,5 +53,5 @@
 
     <div class="mt-6 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/75"><b>Responsible-use notice:</b> NekoRoute is provided for regional availability, moderation, compatibility and defensive security analysis. Users are responsible for how they use the service and for following applicable law and website terms. Public proxies are third-party infrastructure and NekoRoute does not guarantee anonymity, privacy, availability, or safety.</div>
   </main>
-  <script src="/scanner.js?v=1789394865" type="module"></script>
+  <script src="/scanner.js?v=0500-20260914T1510" type="module"></script>
 </body></html>

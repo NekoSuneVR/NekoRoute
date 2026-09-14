@@ -1,7 +1,7 @@
-import { esc, flag, countryName, countryLabel, regions } from '/common.js?v=1789394865';
+import { esc, flag, countryName, countryLabel, regions } from '/common.js?v=0500-20260914T1510';
 
 const $ = s => document.querySelector(s);
-const state = { stats: null, region: '', country: '', protocol: '', status: 'online' };
+const state = { stats: null, region: '', country: '', protocol: '', status: 'online', page:1, pageSize:50, pages:1, total:0 };
 
 function option(value, label) { return `<option value="${esc(value)}">${esc(label)}</option>`; }
 function syncSelects() {
@@ -30,7 +30,7 @@ function renderRegions() {
     state.region = state.region === btn.dataset.region ? '' : btn.dataset.region;
     state.country = '';
     syncSelects();
-    loadProxies();
+    loadProxies({resetPage:true});
   });
 }
 
@@ -57,23 +57,33 @@ function statusBadge(status) {
   return `<span class="rounded-full px-2 py-1 text-xs font-bold ${cls}">${esc(status)}</span>`;
 }
 
-async function loadProxies() {
-  const q = new URLSearchParams({ limit:'250' });
+async function loadProxies({ resetPage=false } = {}) {
+  if (resetPage) state.page = 1;
+  const q = new URLSearchParams({ page:String(state.page), pageSize:String(state.pageSize) });
   if (state.region) q.set('region', state.region);
   if (state.country) q.set('country', state.country);
   if (state.protocol) q.set('protocol', state.protocol);
   if (state.status) q.set('status', state.status);
-  const res = await fetch('/api/proxies?' + q);
-  const nodes = await res.json();
-  $('#tableSummary').textContent = `${nodes.length} nodes shown`;
+  const res = await fetch('/api/v1/nodes?' + q);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  const nodes = data.items || [];
+  state.page = Number(data.page || 1); state.pages = Number(data.pages || 1); state.total = Number(data.total || 0);
+  $('#tableSummary').textContent = `${state.total} matching nodes · ${nodes.length} on this page`;
+  $('#tablePage').textContent = `Page ${state.page} of ${state.pages}`;
+  $('#tablePrev').disabled = state.page <= 1;
+  $('#tableNext').disabled = state.page >= state.pages;
   $('#proxyRows').innerHTML = nodes.length ? nodes.map(n => `<tr class="hover:bg-emerald-500/[.025]"><td class="px-5 py-3 font-mono text-xs text-zinc-300">${esc(n.address)}</td><td class="px-4 py-3">${flag(n.country)} <span class="font-semibold">${esc(countryName(n.country))}</span> <span class="text-xs text-zinc-600">(${esc(n.country)})</span><div class="text-xs text-zinc-600">${esc(n.region)} · ${esc(n.city)}</div></td><td class="px-4 py-3"><span class="rounded-lg border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-xs">${esc(n.protocol)}</span></td><td class="px-4 py-3">${n.latencyMs == null ? '—' : `${n.latencyMs} ms`}</td><td class="px-4 py-3">${n.reliability == null ? '—' : `${n.reliability}%`}</td><td class="px-4 py-3">${statusBadge(n.status)}</td><td class="px-5 py-3 text-xs text-zinc-500">${n.lastCheck ? new Date(n.lastCheck).toLocaleString() : 'Never'}</td></tr>`).join('') : `<tr><td colspan="7" class="px-5 py-14 text-center text-zinc-500">No nodes match these filters yet.</td></tr>`;
 }
 
 for (const [id,key] of [['regionSelect','region'],['countrySelect','country'],['protocolSelect','protocol'],['statusSelect','status']]) {
-  $('#'+id)?.addEventListener('change', e => { state[key]=e.target.value; syncSelects(); loadProxies(); });
+  $('#'+id)?.addEventListener('change', e => { state[key]=e.target.value; syncSelects(); loadProxies({resetPage:true}); });
 }
 $('#reloadBtn').onclick = async () => { await loadStats(); await loadProxies(); };
-$('#clearFilters').onclick = () => { Object.assign(state,{region:'',country:'',protocol:'',status:'online'}); syncSelects(); loadProxies(); };
+$('#clearFilters').onclick = () => { Object.assign(state,{region:'',country:'',protocol:'',status:'online',page:1}); syncSelects(); loadProxies({resetPage:true}); };
+$('#tablePrev').onclick=()=>{if(state.page>1){state.page--;loadProxies();}};
+$('#tableNext').onclick=()=>{if(state.page<state.pages){state.page++;loadProxies();}};
+$('#tablePageSize').onchange=e=>{state.pageSize=Number(e.target.value||50);state.page=1;loadProxies({resetPage:true});};
 try { await loadStats(); await loadProxies(); }
 catch (e) { $('#healthPill').textContent = 'API unavailable'; console.error(e); }
 setInterval(async () => { try { await loadStats(); await loadProxies(); } catch {} }, 30000);
