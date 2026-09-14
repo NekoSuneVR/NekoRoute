@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import pLimit from 'p-limit';
 import { fetchProxySources } from './sources.js';
 import { requestViaProxy } from './proxy.js';
+import { initDatabase, ProxyNode, getState, setState, persistNodes } from './database.js';
 
 export class ProxyPool {
   constructor(config) {
@@ -11,61 +12,98 @@ export class ProxyPool {
     this.lastSourceRefresh = null;
     this.lastHealthSweep = null;
     this.cursor = 0;
+    this.databaseReady = false;
   }
 
   async loadState() {
-    try {
-      const data = JSON.parse(await fs.readFile('/app/data/proxy-state.json', 'utf8'));
-      for (const node of data.nodes || []) this.nodes.set(node.id, node);
-    } catch {}
+    await initDatabase();
+    this.databaseReady = true;
+
+    const rows = await ProxyNode.findAll({ raw: true });
+    for (const row of rows) {
+      const node = {
+        ...row,
+        lastCheck: row.lastCheck ? new Date(row.lastCheck).toISOString() : null,
+        lastSuccess: row.lastSuccess ? new Date(row.lastSuccess).toISOString() : null,
+        firstSeen: row.firstSeen ? new Date(row.firstSeen).toISOString() : null,
+        lastSeen: row.lastSeen ? new Date(row.lastSeen).toISOString() : null
+      };
+      this.nodes.set(node.id, node);
+    }
+
+    if (!this.nodes.size) {
+      try {
+        const legacy = JSON.parse(await fs.readFile('/app/data/proxy-state.json', 'utf8'));
+        const now = new Date().toISOString();
+        for (const old of legacy.nodes || []) {
+          const node = { ...old, firstSeen: old.firstSeen || old.lastCheck || now, lastSeen: old.lastSeen || old.lastCheck || now, sourcePresent: true };
+          this.nodes.set(node.id, node);
+        }
+        if (this.nodes.size) {
+          await persistNodes([...this.nodes.values()]);
+          console.log(`[state] migrated ${this.nodes.size} legacy proxy nodes into SQLite`);
+        }
+      } catch {}
+    }
+
+    this.cursor = Number(await getState('healthCursor', 0)) || 0;
+    this.lastSourceRefresh = await getState('lastSourceRefresh', null);
+    this.lastHealthSweep = await getState('lastHealthSweep', null);
   }
 
-  async saveState() {
+  async saveState(nodes = null) {
     try {
-      await fs.mkdir('/app/data', { recursive: true });
-      await fs.writeFile('/app/data/proxy-state.json', JSON.stringify({ savedAt: new Date().toISOString(), nodes: [...this.nodes.values()] }, null, 2));
+      if (!this.databaseReady) return;
+      await persistNodes(nodes || [...this.nodes.values()]);
+      await Promise.all([
+        setState('healthCursor', this.cursor),
+        setState('lastSourceRefresh', this.lastSourceRefresh),
+        setState('lastHealthSweep', this.lastHealthSweep)
+      ]);
     } catch (error) {
-      console.error('[state] save failed:', error.message);
+      console.error('[state] SQLite save failed:', error.message);
     }
   }
 
   async refreshSources() {
     const { proxies, sourceStats } = await fetchProxySources(this.config.maxProxies);
-    const old = this.nodes;
+    const now = new Date().toISOString();
 
-    // Never erase the last known pool just because every upstream source is temporarily unavailable.
-    if (!proxies.length && old.size) {
-      this.sourceStats = sourceStats;
-      this.lastSourceRefresh = new Date().toISOString();
-      await this.saveState();
-      return { count: old.size, retained: true, sourceStats };
-    }
+    for (const node of this.nodes.values()) node.sourcePresent = false;
 
-    const next = new Map();
     for (const incoming of proxies) {
-      const previous = old.get(incoming.id);
+      const previous = this.nodes.get(incoming.id);
       if (!previous) {
-        next.set(incoming.id, incoming);
+        this.nodes.set(incoming.id, {
+          ...incoming,
+          firstSeen: now,
+          lastSeen: now,
+          sourcePresent: true
+        });
         continue;
       }
-      next.set(incoming.id, {
+      this.nodes.set(incoming.id, {
+        ...previous,
         ...incoming,
-        status: previous.status,
-        latencyMs: previous.latencyMs,
-        exitIp: previous.exitIp,
+        status: previous.status || incoming.status,
+        latencyMs: previous.latencyMs ?? incoming.latencyMs,
+        exitIp: previous.exitIp ?? incoming.exitIp,
         successes: previous.successes || 0,
         failures: previous.failures || 0,
         consecutiveFailures: previous.consecutiveFailures || 0,
         lastCheck: previous.lastCheck || null,
         lastSuccess: previous.lastSuccess || null,
-        lastError: previous.lastError || null
+        lastError: previous.lastError || null,
+        firstSeen: previous.firstSeen || now,
+        lastSeen: now,
+        sourcePresent: true
       });
     }
-    this.nodes = next;
+
     this.sourceStats = sourceStats;
-    this.lastSourceRefresh = new Date().toISOString();
+    this.lastSourceRefresh = now;
     await this.saveState();
-    return { count: next.size, sourceStats };
+    return { count: this.nodes.size, discoveredThisRefresh: proxies.length, retained: proxies.length === 0 && this.nodes.size > 0, sourceStats };
   }
 
   async checkNode(node) {
@@ -85,7 +123,8 @@ export class ProxyPool {
         successes: (node.successes || 0) + 1,
         consecutiveFailures: 0,
         lastCheck: checkedAt,
-        lastSuccess: checkedAt
+        lastSuccess: checkedAt,
+        lastError: null
       });
     } catch (error) {
       const failures = (node.failures || 0) + 1;
@@ -111,7 +150,7 @@ export class ProxyPool {
     const limit = pLimit(12);
     await Promise.allSettled(batch.map(node => limit(() => this.checkNode(node))));
     this.lastHealthSweep = new Date().toISOString();
-    await this.saveState();
+    await this.saveState(batch);
   }
 
   score(node) {
@@ -149,6 +188,9 @@ export class ProxyPool {
       degraded: nodes.filter(n=>n.status==='degraded').length,
       offline: nodes.filter(n=>n.status==='offline').length,
       unchecked: nodes.filter(n=>n.status==='unknown').length,
+      sourceMissing: nodes.filter(n=>n.sourcePresent === false).length,
+      database: 'sqlite',
+      healthCursor: this.cursor,
       byProtocol: countBy('protocol'),
       byCountry: countBy('country'),
       byRegion: countBy('region'),
