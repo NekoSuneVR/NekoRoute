@@ -41,7 +41,18 @@ app.disable('x-powered-by');
 app.set('trust proxy', String(process.env.TRUST_PROXY || 'false').toLowerCase() === 'true' ? 1 : false);
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(express.json({ limit: '64kb' }));
-app.use(express.static(path.join(root, 'public'), { maxAge: '1h', etag: true }));
+// Frontend files change together. Never let browsers/CDNs combine stale HTML with newer JS/CSS.
+app.use((req, res, next) => {
+  const frontendAsset = /\.(?:html|js|css)$/i.test(req.path) || ['/', '/tester', '/preview', '/scanner'].includes(req.path);
+  if (frontendAsset) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+  }
+  next();
+});
+app.use(express.static(path.join(root, 'public'), { maxAge: 0, etag: false, lastModified: false }));
 
 const nodeRef = node => createHash('sha256').update(node.id).digest('hex').slice(0, 24);
 const findNodeByRef = ref => [...pool.nodes.values()].find(node => nodeRef(node) === ref) || null;

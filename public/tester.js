@@ -1,4 +1,7 @@
 const $ = s => document.querySelector(s);
+const value = (s, fallback = '') => $(s)?.value ?? fallback;
+const setText = (s, text) => { const el = $(s); if (el) el.textContent = text; };
+const setHtml = (s, html) => { const el = $(s); if (el) el.innerHTML = html; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const flag = code => code && code.length === 2 ? [...code].map(c => String.fromCodePoint(127397 + c.charCodeAt())).join('') : '🌐';
 const regions = ['North America','South America','Europe','Africa','Asia','Oceania','Other'];
@@ -14,33 +17,36 @@ function statusClass(code) {
 }
 
 function fillFilters() {
-  $('#regionSelect').innerHTML = '<option value="">All regions</option>' + regions.map(r => `<option>${r}</option>`).join('');
+  setHtml('#regionSelect', '<option value="">All regions</option>' + regions.map(r => `<option>${r}</option>`).join(''));
   const countries = Object.entries(stats?.byCountry || {}).sort((a,b) => a[0].localeCompare(b[0]));
-  $('#countrySelect').innerHTML = '<option value="">All countries</option>' + countries.map(([c,n]) => `<option value="${esc(c)}">${flag(c)} ${esc(c)} · ${n}</option>`).join('');
+  setHtml('#countrySelect', '<option value="">All countries</option>' + countries.map(([c,n]) => `<option value="${esc(c)}">${flag(c)} ${esc(c)} · ${n}</option>`).join(''));
 }
 
 async function loadNodes() {
   const q = new URLSearchParams({ status:'online', limit:'250' });
-  if ($('#regionSelect').value) q.set('region', $('#regionSelect').value);
-  if ($('#countrySelect').value) q.set('country', $('#countrySelect').value);
-  if ($('#protocolSelect').value) q.set('protocol', $('#protocolSelect').value);
+  const region = value('#regionSelect');
+  const country = value('#countrySelect');
+  const protocol = value('#protocolSelect');
+  if (region) q.set('region', region);
+  if (country) q.set('country', country);
+  if (protocol) q.set('protocol', protocol);
   const res = await fetch('/api/proxies?' + q);
   const nodes = await res.json();
-  $('#nodeSelect').innerHTML = '<option value="">Auto / multiple</option>' + nodes.map(n => `<option value="${esc(n.ref)}">${flag(n.country)} ${esc(n.country)} · ${esc(n.protocol)} · ${esc(n.address)} · ${n.latencyMs ?? '—'}ms</option>`).join('');
+  setHtml('#nodeSelect', '<option value="">Auto / multiple</option>' + nodes.map(n => `<option value="${esc(n.ref)}">${flag(n.country)} ${esc(n.country)} · ${esc(n.protocol)} · ${esc(n.address)} · ${n.latencyMs ?? '—'}ms</option>`).join(''));
 }
 
 function renderSummary(results) {
   const count = test => results.filter(test).length;
-  $('#sumTested').textContent = results.length;
-  $('#sum2xx').textContent = count(r => r.statusCode >= 200 && r.statusCode < 300);
-  $('#sum3xx').textContent = count(r => r.statusCode >= 300 && r.statusCode < 400);
-  $('#sum4xx').textContent = count(r => r.statusCode >= 400 && r.statusCode < 500);
-  $('#sum5xx').textContent = count(r => r.statusCode >= 500);
-  $('#sumErrors').textContent = count(r => !r.ok || r.statusCode == null);
+  setText('#sumTested', results.length);
+  setText('#sum2xx', count(r => r.statusCode >= 200 && r.statusCode < 300));
+  setText('#sum3xx', count(r => r.statusCode >= 300 && r.statusCode < 400));
+  setText('#sum4xx', count(r => r.statusCode >= 400 && r.statusCode < 500));
+  setText('#sum5xx', count(r => r.statusCode >= 500));
+  setText('#sumErrors', count(r => !r.ok || r.statusCode == null));
 }
 
 function renderRows(results) {
-  $('#resultRows').innerHTML = results.map(r => {
+  setHtml('#resultRows', results.map(r => {
     const n = r.node || {};
     const code = r.statusCode == null ? 'ERR' : r.statusCode;
     return `<tr class="hover:bg-emerald-500/[.025]">
@@ -52,7 +58,7 @@ function renderRows(results) {
       <td class="max-w-[250px] truncate px-4 py-3 text-xs text-zinc-500" title="${esc(r.location || '')}">${esc(r.location || '—')}</td>
       <td class="px-5 py-3 text-xs ${r.ok ? 'text-zinc-400' : 'text-rose-300'}">${esc(r.error || (r.contentType || 'Response received'))}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" class="px-5 py-12 text-center text-zinc-500">No results.</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="px-5 py-12 text-center text-zinc-500">No results.</td></tr>');
 }
 
 async function init() {
@@ -60,24 +66,27 @@ async function init() {
   stats = await statsRes.json();
   const config = await configRes.json();
   fillFilters();
-  $('#allowlistInfo').textContent = `Public availability tester · HTTP/HTTPS ports 80/443 only · private/reserved networks blocked · maximum ${config.matrixMaxNodes || 12} proxies per run · rate limits apply`; 
+  setText('#allowlistInfo', `Public availability tester · HTTP/HTTPS ports 80/443 only · private/reserved networks blocked · maximum ${config.matrixMaxNodes || 12} proxies per run · rate limits apply`);
   await loadNodes();
 }
 
-for (const id of ['regionSelect','countrySelect','protocolSelect']) $(id.startsWith('#') ? id : '#'+id).addEventListener('change', loadNodes);
+for (const id of ['regionSelect','countrySelect','protocolSelect']) {
+  const el = $('#'+id);
+  if (el) el.addEventListener('change', loadNodes);
+}
 
-$('#runBtn').addEventListener('click', async () => {
+$('#runBtn')?.addEventListener('click', async () => {
   const body = {
-    url: $('#testUrl').value,
-    region: $('#regionSelect').value || undefined,
-    country: $('#countrySelect').value || undefined,
-    protocol: $('#protocolSelect').value || undefined,
-    nodeRef: $('#nodeSelect').value || undefined,
-    limit: Number($('#limitSelect').value || 8)
+    url: value('#testUrl'),
+    region: value('#regionSelect') || undefined,
+    country: value('#countrySelect') || undefined,
+    protocol: value('#protocolSelect') || undefined,
+    nodeRef: value('#nodeSelect') || undefined,
+    limit: Number(value('#limitSelect', '8') || 8)
   };
-  $('#runBtn').disabled = true;
-  $('#runBtn').textContent = 'Testing…';
-  $('#resultMeta').textContent = 'Running requests through selected exits…';
+  const runBtn = $('#runBtn');
+  if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'Testing…'; }
+  setText('#resultMeta', 'Running requests through selected exits…');
   try {
     const res = await fetch('/api/test-matrix', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) });
     const data = await res.json();
@@ -85,21 +94,20 @@ $('#runBtn').addEventListener('click', async () => {
     lastResult = data;
     renderSummary(data.results || []);
     renderRows(data.results || []);
-    $('#resultMeta').textContent = `${data.tested} proxies · ${data.durationMs} ms total · ${data.target}`;
+    setText('#resultMeta', `${data.tested} proxies · ${data.durationMs} ms total · ${data.target}`);
   } catch (error) {
-    $('#resultMeta').textContent = error.message;
-    $('#resultRows').innerHTML = `<tr><td colspan="7" class="px-5 py-12 text-center text-rose-300">${esc(error.message)}</td></tr>`;
+    setText('#resultMeta', error.message);
+    setHtml('#resultRows', `<tr><td colspan="7" class="px-5 py-12 text-center text-rose-300">${esc(error.message)}</td></tr>`);
   } finally {
-    $('#runBtn').disabled = false;
-    $('#runBtn').textContent = 'Run test';
+    if (runBtn) { runBtn.disabled = false; runBtn.textContent = 'Run test'; }
   }
 });
 
-$('#copyBtn').addEventListener('click', async () => {
+$('#copyBtn')?.addEventListener('click', async () => {
   if (!lastResult) return;
   await navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2));
-  $('#copyBtn').textContent = 'Copied';
-  setTimeout(() => $('#copyBtn').textContent = 'Copy JSON', 1200);
+  setText('#copyBtn', 'Copied');
+  setTimeout(() => setText('#copyBtn', 'Copy JSON'), 1200);
 });
 
-init().catch(error => { $('#allowlistInfo').textContent = error.message; });
+init().catch(error => { setText('#allowlistInfo', error.message); console.error('[tester] init failed:', error); });
