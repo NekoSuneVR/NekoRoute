@@ -1,0 +1,27 @@
+services:
+  nekoroute:
+    build: .
+    image: nekoroute:local
+    container_name: nekoroute
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3210:3210"
+    volumes:
+      - proxy_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3210/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  proxy_data:

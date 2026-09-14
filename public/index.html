@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#07110b" />
+  <title>NekoRoute — Region Egress Dashboard</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="min-h-screen text-zinc-100 antialiased">
+  <div class="fixed inset-0 -z-20 bg-[#050807]"></div>
+  <div class="fixed inset-0 -z-10 grid-glow [mask-image:linear-gradient(to_bottom,black,transparent_80%)]"></div>
+  <div class="fixed left-1/2 top-[-18rem] -z-10 h-[34rem] w-[60rem] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl"></div>
+
+  <header class="sticky top-0 z-30 border-b border-emerald-950/80 bg-[#050807]/85 backdrop-blur-xl">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
+      <div class="flex items-center gap-3">
+        <div class="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-400/30 bg-emerald-500/10 text-lg">✦</div>
+        <div><div class="font-black tracking-tight">NekoRoute</div><div class="text-xs text-zinc-500">region-aware egress monitor</div></div>
+      </div>
+      <div id="healthPill" class="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-400">Connecting…</div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-5 py-8">
+    <section class="grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
+      <div class="glass rounded-[2rem] border border-emerald-950/80 p-7 shadow-2xl shadow-black/20">
+        <div class="mb-6 max-w-2xl">
+          <div class="mb-3 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">LIVE PROXY POOL</div>
+          <h1 class="text-4xl font-black tracking-tight sm:text-5xl">Healthy egress nodes, grouped by <span class="text-emerald-400">region.</span></h1>
+          <p class="mt-4 text-zinc-400">Discover public HTTP, HTTPS, SOCKS4 and SOCKS5 nodes, then route approved connectivity tests through the healthiest matching exit.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-2xl border border-zinc-800 bg-black/25 p-4"><div class="text-xs text-zinc-500">Discovered</div><div id="statTotal" class="mt-1 text-2xl font-black">—</div></div>
+          <div class="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4"><div class="text-xs text-emerald-300/70">Online</div><div id="statOnline" class="mt-1 text-2xl font-black text-emerald-300">—</div></div>
+          <div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4"><div class="text-xs text-amber-300/70">Degraded</div><div id="statDegraded" class="mt-1 text-2xl font-black text-amber-300">—</div></div>
+          <div class="rounded-2xl border border-zinc-800 bg-black/25 p-4"><div class="text-xs text-zinc-500">Unchecked</div><div id="statUnchecked" class="mt-1 text-2xl font-black">—</div></div>
+        </div>
+      </div>
+
+      <div class="glass rounded-[2rem] border border-zinc-800 p-6">
+        <div class="flex items-center justify-between"><h2 class="font-bold">Route tester</h2><span class="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-300">ADMIN</span></div>
+        <p class="mt-2 text-sm text-zinc-500">Tests only domains configured in <code>ALLOWED_TEST_HOSTS</code>.</p>
+        <div class="mt-5 space-y-3">
+          <input id="adminToken" type="password" placeholder="Admin token" class="w-full rounded-xl border border-zinc-800 bg-black/30 px-3 py-2.5 outline-none focus:border-emerald-500/60" />
+          <input id="testUrl" type="url" value="https://example.com/" class="w-full rounded-xl border border-zinc-800 bg-black/30 px-3 py-2.5 outline-none focus:border-emerald-500/60" />
+          <button id="testBtn" class="w-full rounded-xl bg-emerald-400 px-4 py-2.5 font-black text-emerald-950 hover:bg-emerald-300">Test selected route</button>
+          <pre id="testOutput" class="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-400">Ready.</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-7">
+      <div class="mb-3 flex items-end justify-between gap-3"><div><h2 class="text-xl font-black">World regions</h2><p class="text-sm text-zinc-500">Pick a region, then narrow by country and protocol.</p></div><button id="clearFilters" class="text-sm text-emerald-400 hover:text-emerald-300">Clear filters</button></div>
+      <div id="regionGrid" class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6"></div>
+    </section>
+
+    <section class="mt-7 glass rounded-[2rem] border border-zinc-800 p-5">
+      <div class="grid gap-3 md:grid-cols-4">
+        <label class="text-xs text-zinc-500">Region<select id="regionSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"></select></label>
+        <label class="text-xs text-zinc-500">Country<select id="countrySelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"></select></label>
+        <label class="text-xs text-zinc-500">Protocol<select id="protocolSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"><option value="">All protocols</option><option>http</option><option>https</option><option>socks4</option><option>socks5</option></select></label>
+        <label class="text-xs text-zinc-500">State<select id="statusSelect" class="mt-1 block w-full rounded-xl border border-zinc-800 bg-[#080d0a] px-3 py-2.5 text-sm text-zinc-100"><option value="online">Online only</option><option value="">All states</option><option value="degraded">Degraded</option><option value="offline">Offline</option><option value="unknown">Unchecked</option></select></label>
+      </div>
+    </section>
+
+    <section class="mt-5 overflow-hidden rounded-[2rem] border border-zinc-800 bg-[#080d0a]/80">
+      <div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4"><div><h2 class="font-black">Proxy nodes</h2><p id="tableSummary" class="text-xs text-zinc-500">Loading…</p></div><button id="reloadBtn" class="rounded-xl border border-zinc-700 px-3 py-2 text-sm hover:border-emerald-500/40">Reload</button></div>
+      <div class="overflow-x-auto"><table class="w-full min-w-[850px] text-left text-sm"><thead class="text-xs uppercase tracking-wider text-zinc-500"><tr><th class="px-5 py-3">Node</th><th class="px-4 py-3">Location</th><th class="px-4 py-3">Protocol</th><th class="px-4 py-3">Latency</th><th class="px-4 py-3">Reliability</th><th class="px-4 py-3">Status</th><th class="px-5 py-3">Last check</th></tr></thead><tbody id="proxyRows" class="divide-y divide-zinc-900"></tbody></table></div>
+    </section>
+
+    <div class="mt-6 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/70">Public proxies are untrusted infrastructure. Don’t send passwords, cookies, private API keys, payment data, or other sensitive traffic through them. “Online” means a recent check succeeded; it cannot guarantee zero downtime.</div>
+  </main>
+<script src="/app.js" type="module"></script>
+</body></html>

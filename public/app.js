@@ -1,0 +1,78 @@
+const $ = s => document.querySelector(s);
+const state = { stats: null, region: '', country: '', protocol: '', status: 'online' };
+const regions = ['North America','South America','Europe','Africa','Asia','Oceania','Other'];
+const flags = code => code && code.length === 2 ? [...code].map(c => String.fromCodePoint(127397 + c.charCodeAt())).join('') : '🌐';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+function option(value, label) { return `<option value="${esc(value)}">${esc(label)}</option>`; }
+function syncSelects() {
+  $('#regionSelect').value = state.region;
+  $('#countrySelect').value = state.country;
+  $('#protocolSelect').value = state.protocol;
+  $('#statusSelect').value = state.status;
+  document.querySelectorAll('.region-card').forEach(el => el.classList.toggle('active', el.dataset.region === state.region));
+}
+
+function renderRegions() {
+  const by = state.stats?.byRegion || {};
+  $('#regionGrid').innerHTML = regions.map(region => `
+    <button data-region="${region}" class="region-card rounded-2xl border border-zinc-800 bg-[#080d0a]/80 p-4 text-left transition hover:border-emerald-500/40 hover:-translate-y-0.5">
+      <div class="text-xs text-zinc-500">${region}</div><div class="mt-1 text-2xl font-black">${by[region] || 0}</div><div class="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-900"><div class="h-full rounded-full bg-emerald-400" style="width:${Math.min(100, ((by[region]||0)/(state.stats?.total||1))*300)}%"></div></div>
+    </button>`).join('');
+  document.querySelectorAll('.region-card').forEach(btn => btn.onclick = () => { state.region = state.region === btn.dataset.region ? '' : btn.dataset.region; state.country = ''; syncSelects(); loadProxies(); });
+}
+
+function buildFilters() {
+  $('#regionSelect').innerHTML = option('', 'All regions') + regions.map(r => option(r,r)).join('');
+  const countries = Object.entries(state.stats?.byCountry || {}).sort((a,b) => a[0].localeCompare(b[0]));
+  $('#countrySelect').innerHTML = option('', 'All countries') + countries.map(([c,n]) => option(c, `${flags(c)} ${c} · ${n}`)).join('');
+  syncSelects();
+}
+
+async function loadStats() {
+  const res = await fetch('/api/stats');
+  state.stats = await res.json();
+  $('#statTotal').textContent = state.stats.total;
+  $('#statOnline').textContent = state.stats.online;
+  $('#statDegraded').textContent = state.stats.degraded;
+  $('#statUnchecked').textContent = state.stats.unchecked;
+  $('#healthPill').innerHTML = `<span class="mr-1 text-emerald-400">●</span> API online · ${state.stats.online} healthy`;
+  renderRegions(); buildFilters();
+}
+
+function statusBadge(status) {
+  const cls = status === 'online' ? 'bg-emerald-500/10 text-emerald-300' : status === 'degraded' ? 'bg-amber-500/10 text-amber-300' : status === 'offline' ? 'bg-rose-500/10 text-rose-300' : 'bg-zinc-800 text-zinc-400';
+  return `<span class="rounded-full px-2 py-1 text-xs font-bold ${cls}">${esc(status)}</span>`;
+}
+
+async function loadProxies() {
+  const q = new URLSearchParams({ limit:'250' });
+  if (state.region) q.set('region', state.region);
+  if (state.country) q.set('country', state.country);
+  if (state.protocol) q.set('protocol', state.protocol);
+  if (state.status) q.set('status', state.status);
+  const res = await fetch('/api/proxies?' + q);
+  const nodes = await res.json();
+  $('#tableSummary').textContent = `${nodes.length} nodes shown`;
+  $('#proxyRows').innerHTML = nodes.length ? nodes.map(n => `<tr class="hover:bg-emerald-500/[.025]"><td class="px-5 py-3 font-mono text-xs text-zinc-300">${esc(n.address)}</td><td class="px-4 py-3">${flags(n.country)} <span class="font-semibold">${esc(n.country)}</span><div class="text-xs text-zinc-600">${esc(n.region)} · ${esc(n.city)}</div></td><td class="px-4 py-3"><span class="rounded-lg border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-xs">${esc(n.protocol)}</span></td><td class="px-4 py-3">${n.latencyMs == null ? '—' : `${n.latencyMs} ms`}</td><td class="px-4 py-3">${n.reliability == null ? '—' : `${n.reliability}%`}</td><td class="px-4 py-3">${statusBadge(n.status)}</td><td class="px-5 py-3 text-xs text-zinc-500">${n.lastCheck ? new Date(n.lastCheck).toLocaleString() : 'Never'}</td></tr>`).join('') : `<tr><td colspan="7" class="px-5 py-14 text-center text-zinc-500">No nodes match these filters yet.</td></tr>`;
+}
+
+for (const [id,key] of [['regionSelect','region'],['countrySelect','country'],['protocolSelect','protocol'],['statusSelect','status']]) {
+  $(id.startsWith('#')?id:'#'+id)?.addEventListener('change', e => { state[key]=e.target.value; syncSelects(); loadProxies(); });
+}
+$('#reloadBtn').onclick = async () => { await loadStats(); await loadProxies(); };
+$('#clearFilters').onclick = () => { Object.assign(state,{region:'',country:'',protocol:'',status:'online'}); syncSelects(); loadProxies(); };
+$('#testBtn').onclick = async () => {
+  const token = $('#adminToken').value;
+  const body = { url: $('#testUrl').value, region: state.region || undefined, country: state.country || undefined, protocol: state.protocol || undefined };
+  $('#testOutput').textContent = 'Testing…';
+  try {
+    const res = await fetch('/api/test-route', { method:'POST', headers:{'content-type':'application/json','x-admin-token':token}, body:JSON.stringify(body) });
+    const data = await res.json();
+    $('#testOutput').textContent = JSON.stringify(data, null, 2);
+  } catch (e) { $('#testOutput').textContent = e.message; }
+};
+
+try { await loadStats(); await loadProxies(); }
+catch (e) { $('#healthPill').textContent = 'API unavailable'; console.error(e); }
+setInterval(async () => { try { await loadStats(); await loadProxies(); } catch {} }, 30000);

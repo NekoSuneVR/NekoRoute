@@ -1,0 +1,42 @@
+# Example only: attach a VPN profile/provider you trust through Gluetun.
+# Do not publish Gluetun's SOCKS5 port to the public Internet.
+services:
+  nekoroute:
+    build: .
+    image: nekoroute:local
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      # Change GB/London to the actual exit configured in Gluetun.
+      STATIC_PROXY_NODES: socks5://gluetun:1080|GB|London|Gluetun
+    ports:
+      - "3210:3210"
+    volumes:
+      - proxy_data:/app/data
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: wireguard
+      WIREGUARD_CONF_SECRETFILE: /run/secrets/wg0.conf
+      SOCKS5_ENABLED: "on"
+      SOCKS5_LISTENING_ADDRESS: ":1080"
+    secrets:
+      - wg0.conf
+
+secrets:
+  wg0.conf:
+    file: ./vpn/wg0.conf
+
+volumes:
+  proxy_data:
