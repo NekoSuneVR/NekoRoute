@@ -24,7 +24,7 @@ const countryName = code => { const c=normalizeCountry(code); if(c==='XX')return
 
 const config = {
   port:int('PORT',3210), adminToken:process.env.ADMIN_TOKEN||'', sourceRefreshMs:int('SOURCE_REFRESH_MS',300000), healthIntervalMs:int('HEALTHCHECK_INTERVAL_MS',60000),
-  healthTimeoutMs:int('HEALTHCHECK_TIMEOUT_MS',7000), healthBatchSize:int('HEALTHCHECK_BATCH_SIZE',80), maxProxies:int('MAX_PROXIES',1500), healthcheckUrl:process.env.HEALTHCHECK_URL||'https://api.ipify.org?format=json',
+  healthTimeoutMs:int('HEALTHCHECK_TIMEOUT_MS',7000), healthBatchSize:int('HEALTHCHECK_BATCH_SIZE',80), maxProxies:int('MAX_PROXIES',5000), healthcheckUrl:process.env.HEALTHCHECK_URL||'https://api.ipify.org?format=json',
   exposeAddresses:bool('EXPOSE_NODE_ADDRESSES'), maxTestBytes:int('MAX_TEST_RESPONSE_BYTES',262144), testTimeoutMs:int('TEST_TIMEOUT_MS',10000),
   matrixMaxNodes:Math.max(1,Math.min(30,int('TEST_MATRIX_MAX_NODES',20))), matrixConcurrency:Math.max(1,Math.min(10,int('TEST_MATRIX_CONCURRENCY',4))),
   previewSessionTtlMs:Math.max(60000,int('PREVIEW_SESSION_TTL_MS',900000)), previewTimeoutMs:Math.max(5000,int('PREVIEW_TIMEOUT_MS',45000)), previewMaxHtmlBytes:Math.max(65536,int('PREVIEW_MAX_HTML_BYTES',2097152)),
@@ -83,7 +83,7 @@ const nodesV1Handler=(req,res)=>{const rows=pool.list(filtersFromQuery(req));con
 const regionsHandler=(_req,res)=>{const by=pool.stats().byRegion||{};res.json(Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([region,count])=>({region,count})));};
 const countriesHandler=(req,res)=>{const by=pool.stats().byCountry||{};const wanted=req.query.region?String(req.query.region):null;const rows=Object.entries(by).map(([code,count])=>{const c=normalizeCountry(code);return{code:c,name:countryName(c),region:regionForCountry(c),count};}).filter(x=>!wanted||x.region===wanted).sort((a,b)=>a.name.localeCompare(b.name));res.json(rows);};
 
-app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.0',nodes:pool.nodes.size}));
+app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.2',nodes:pool.nodes.size}));
 app.get(['/api/stats','/api/v1/stats'],statsHandler);
 app.get(['/api/config','/api/v1/config'],configHandler);
 app.get(['/api/proxies','/api/v1/proxies'],proxiesHandler);
@@ -92,12 +92,12 @@ app.get('/api/v1/regions',regionsHandler);
 app.get('/api/v1/countries',countriesHandler);
 app.get('/api/v1/threat-intel',(_req,res)=>res.json(threatIntelStatus()));
 app.get('/api/v1',(_req,res)=>res.json({
-  service:'NekoRoute',version:'0.5.0',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
+  service:'NekoRoute',version:'0.5.2',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
     health:'GET /api/v1/health',stats:'GET /api/v1/stats',regions:'GET /api/v1/regions',countries:'GET /api/v1/countries?region=Europe',nodes:'GET /api/v1/nodes?status=online&country=FR',
     test:'POST /api/v1/test',matrix:'POST /api/v1/test-matrix',scan:'POST /api/v1/scan',previewSession:'POST /api/v1/preview/session',previewResources:'GET /api/v1/preview/session/:id/resources',browserTicket:'POST /api/v1/browser-ticket',threatIntel:'GET /api/v1/threat-intel'
   }
 }));
-app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.0',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and safe preview sessions.'},paths:{
+app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.2',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and safe preview sessions.'},paths:{
   '/api/v1/health':{get:{summary:'Service health'}},'/api/v1/stats':{get:{summary:'Proxy pool statistics'}},'/api/v1/regions':{get:{summary:'Region counts'}},'/api/v1/countries':{get:{summary:'Country names and counts'}},'/api/v1/nodes':{get:{summary:'Filtered public node metadata'}},
   '/api/v1/test':{post:{summary:'Test one URL through a selected/best route'}},'/api/v1/test-matrix':{post:{summary:'Compare one URL across multiple routes'}},'/api/v1/scan':{post:{summary:'Defensive website scan through a proxy'}},'/api/v1/preview/session':{post:{summary:'Create a safe preview session'}},'/api/v1/preview/session/{id}/resources':{get:{summary:'List page-linked resources discovered in an active preview session'}},'/api/v1/browser-ticket':{post:{summary:'Create a one-time ticket for the optional local Firefox Bridge extension'}},'/api/v1/browser-ticket/{ticket}':{get:{summary:'Consume a one-time Firefox Bridge ticket'}}
 }}));

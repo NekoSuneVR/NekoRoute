@@ -1,4 +1,4 @@
-# NekoRoute v0.5.0
+# NekoRoute v0.5.2
 
 NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a safe server-side preview, and can hand a selected route to an optional **local Firefox Bridge** for full browser compatibility and direct-to-PC downloads.
 
@@ -75,6 +75,39 @@ The scanner fetches a public website through the selected proxy without executin
 - Optional self-hosted ClamAV.
 - Optional VirusTotal API v3.
 - Optional Google Web Risk.
+
+## Public proxy providers
+
+NekoRoute v0.5.2 merges and de-duplicates multiple independent public sources:
+
+- **Proxifly** — metadata-rich HTTP/HTTPS/SOCKS lists.
+- **ProxyScrape** — metadata-rich HTTP/HTTPS/SOCKS lists.
+- **Proxio** — multi-protocol JSON list.
+- **IPLocate** — verified `all-proxies.txt` list (protocol/IP/port; country is filled from richer sources when the same node overlaps).
+- **GeoNode** — paginated API with country, city, anonymity, uptime and response-time metadata.
+- **Fresh Proxy List (vakhov)** — separate HTTP, HTTPS, SOCKS4 and SOCKS5 feeds.
+- **Rola IP** — paginated daily API with country, protocol, anonymity, response time and uptime.
+- **DataBay** — paginated no-key JSON API with protocol, country, latency and uptime.
+- **Advanced.name** — optional operator-configured plain-text export, queried separately for HTTP/HTTPS/SOCKS4/SOCKS5 so protocol is retained. Set `ADVANCED_NAME_FEED_URL` to enable it; the token-like export URL is intentionally not hard-coded.
+- **ProxMint** — paginated no-key JSON API with protocol, country, anonymity, latency, uptime and provider score.
+- **Socks5Proxies.com** — public offset-paginated JSON feed; protocol flags, country, city, anonymity, uptime/check data and health score are used when available. Its public endpoint is best-effort/IP-rate-limited, so NekoRoute defaults this provider to five pages per refresh even if the global page cap is higher.
+- **Static** — optional operator-supplied trusted nodes from `STATIC_PROXY_NODES`.
+
+Paginated providers are fetched only up to `SOURCE_PROVIDER_ITEM_CAP` (default 2500 per provider) so a single large feed cannot dominate refresh time. Cross-provider duplicates are merged before the final region/protocol diversity pick. NekoRoute prefers richer country/city/anonymity metadata when the same endpoint appears in multiple sources.
+
+`topfreeproxylist.com` is intentionally not scraped because it currently exposes a browser table/export UI rather than a documented stable machine API. Scraping its HTML would be brittle and could break NekoRoute whenever that site changes layout.
+
+Useful tuning:
+
+```dotenv
+MAX_PROXIES=5000
+SOURCE_PROVIDER_ITEM_CAP=2500
+SOURCE_MAX_PAGES=20
+SOURCE_CONCURRENCY=4
+SOURCE_PAGE_CONCURRENCY=2
+SOCKS5PROXIES_MAX_PAGES=5
+ADVANCED_NAME_FEED_URL=
+```
 
 ## SQLite persistence
 
