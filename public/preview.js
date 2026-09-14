@@ -54,7 +54,7 @@ async function createSession() {
     protocol: $('#protocolSelect').value || undefined,
     nodeRef: $('#nodeSelect').value || undefined
   };
-  const res = await fetch('/api/preview-session', { method:'POST', headers:{'content-type':'application/json','x-admin-token':$('#adminToken').value}, body:JSON.stringify(body) });
+  const res = await fetch('/api/preview-session', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   session = data;
