@@ -1,5 +1,6 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 RUN npm install
 COPY src ./src
@@ -10,6 +11,7 @@ RUN npm prune --omit=dev
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
+RUN apk add --no-cache libstdc++
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/src ./src
 COPY --from=build --chown=node:node /app/public ./public
