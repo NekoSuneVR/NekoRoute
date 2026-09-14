@@ -1,6 +1,6 @@
 {
   "name": "nekoroute",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "private": true,
   "type": "module",
   "description": "Public regional availability diagnostics, browser-like safe proxy previews plus an optional local Firefox Bridge, self-hosted/no-key threat checks, and persistent proxy health tracking.",

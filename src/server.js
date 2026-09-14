@@ -8,7 +8,7 @@ import * as cheerio from 'cheerio';
 import pLimit from 'p-limit';
 import { ProxyPool } from './pool.js';
 import { validatePublicTarget } from './security.js';
-import { requestViaProxy } from './proxy.js';
+import { requestViaProxy, openProxyStream } from './proxy.js';
 import { scanWebsite } from './scanner.js';
 import { saveScanResult } from './database.js';
 import { regionForCountry } from './regions.js';
@@ -28,7 +28,7 @@ const config = {
   exposeAddresses:bool('EXPOSE_NODE_ADDRESSES'), maxTestBytes:int('MAX_TEST_RESPONSE_BYTES',262144), testTimeoutMs:int('TEST_TIMEOUT_MS',10000),
   matrixMaxNodes:Math.max(1,Math.min(30,int('TEST_MATRIX_MAX_NODES',20))), matrixConcurrency:Math.max(1,Math.min(10,int('TEST_MATRIX_CONCURRENCY',4))),
   previewSessionTtlMs:Math.max(60000,int('PREVIEW_SESSION_TTL_MS',900000)), previewTimeoutMs:Math.max(5000,int('PREVIEW_TIMEOUT_MS',45000)), previewMaxHtmlBytes:Math.max(65536,int('PREVIEW_MAX_HTML_BYTES',2097152)),
-  previewMaxResourceBytes:Math.max(65536,int('PREVIEW_MAX_RESOURCE_BYTES',8388608)), previewMaxDownloadBytes:Math.max(1048576,int('PREVIEW_MAX_DOWNLOAD_BYTES',33554432)),
+  previewMaxResourceBytes:Math.max(65536,int('PREVIEW_MAX_RESOURCE_BYTES',16777216)), previewMaxDownloadBytes:Math.max(1048576,int('PREVIEW_MAX_DOWNLOAD_BYTES',33554432)), previewMaxStreamBytes:Math.max(1048576,int('PREVIEW_MAX_STREAM_BYTES',536870912)),
   previewUserAgent:process.env.PREVIEW_USER_AGENT||'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:155.0) Gecko/20100101 Firefox/155.0',
   publicRateLimitWindowMs:Math.max(10000,int('PUBLIC_RATE_LIMIT_WINDOW_MS',60000)), publicRateLimitMax:Math.max(5,int('PUBLIC_RATE_LIMIT_MAX',60)), scanRateLimitMax:Math.max(1,int('SCAN_RATE_LIMIT_MAX',12)),
   scanTimeoutMs:Math.max(3000,int('SCAN_TIMEOUT_MS',12000)), scanMaxBytes:Math.max(65536,int('SCAN_MAX_BYTES',1048576)),
@@ -83,7 +83,7 @@ const nodesV1Handler=(req,res)=>{const rows=pool.list(filtersFromQuery(req));con
 const regionsHandler=(_req,res)=>{const by=pool.stats().byRegion||{};res.json(Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([region,count])=>({region,count})));};
 const countriesHandler=(req,res)=>{const by=pool.stats().byCountry||{};const wanted=req.query.region?String(req.query.region):null;const rows=Object.entries(by).map(([code,count])=>{const c=normalizeCountry(code);return{code:c,name:countryName(c),region:regionForCountry(c),count};}).filter(x=>!wanted||x.region===wanted).sort((a,b)=>a.name.localeCompare(b.name));res.json(rows);};
 
-app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.4',nodes:pool.nodes.size}));
+app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.6',nodes:pool.nodes.size}));
 app.get(['/api/stats','/api/v1/stats'],statsHandler);
 app.get(['/api/config','/api/v1/config'],configHandler);
 app.get(['/api/proxies','/api/v1/proxies'],proxiesHandler);
@@ -92,12 +92,12 @@ app.get('/api/v1/regions',regionsHandler);
 app.get('/api/v1/countries',countriesHandler);
 app.get('/api/v1/threat-intel',(_req,res)=>res.json(threatIntelStatus()));
 app.get('/api/v1',(_req,res)=>res.json({
-  service:'NekoRoute',version:'0.5.4',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
+  service:'NekoRoute',version:'0.5.6',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
     health:'GET /api/v1/health',stats:'GET /api/v1/stats',regions:'GET /api/v1/regions',countries:'GET /api/v1/countries?region=Europe',nodes:'GET /api/v1/nodes?status=online&country=FR',
     test:'POST /api/v1/test',matrix:'POST /api/v1/test-matrix',scan:'POST /api/v1/scan',previewSession:'POST /api/v1/preview/session',previewResources:'GET /api/v1/preview/session/:id/resources',browserTicket:'POST /api/v1/browser-ticket',threatIntel:'GET /api/v1/threat-intel'
   }
 }));
-app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.4',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and sandboxed interactive preview sessions.'},paths:{
+app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.6',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and sandboxed interactive preview sessions.'},paths:{
   '/api/v1/health':{get:{summary:'Service health'}},'/api/v1/stats':{get:{summary:'Proxy pool statistics'}},'/api/v1/regions':{get:{summary:'Region counts'}},'/api/v1/countries':{get:{summary:'Country names and counts'}},'/api/v1/nodes':{get:{summary:'Filtered public node metadata'}},
   '/api/v1/test':{post:{summary:'Test one URL through a selected/best route'}},'/api/v1/test-matrix':{post:{summary:'Compare one URL across multiple routes'}},'/api/v1/scan':{post:{summary:'Defensive website scan through a proxy'}},'/api/v1/preview/session':{post:{summary:'Create a sandboxed interactive preview session'}},'/api/v1/preview/session/{id}/resources':{get:{summary:'List page-linked resources discovered in an active preview session'}},'/api/v1/browser-ticket':{post:{summary:'Create a one-time ticket for the optional local Firefox Bridge extension'}},'/api/v1/browser-ticket/{ticket}':{get:{summary:'Consume a one-time Firefox Bridge ticket'}}
 }}));
@@ -130,7 +130,21 @@ function rewriteCss(css,base,id,session){
   return out;
 }
 const mediaExt=/\.(?:mp3|m4a|aac|wav|ogg|oga|opus|flac|mp4|m4v|webm|mov|jpg|jpeg|png|gif|webp|avif|svg|pdf)(?:$|[?#])/i;
-function rewriteSrcset(value,base,id,session){return String(value||'').split(',').map(part=>{const bits=part.trim().split(/\s+/);const u=absolute(bits[0],base);if(u)bits[0]=registerResource(id,session,u,'resource',base);return bits.join(' ');}).join(', ');}
+function rewriteSrcset(value,base,id,session){return String(value||'').split(',').map(part=>{const bits=part.trim().split(/\\s+/);const u=absolute(bits[0],base);if(u)bits[0]=registerResource(id,session,u,'image',base);return bits.join(' ');}).join(', ');}
+function guessMimeFromUrl(value){
+  try{const ext=path.extname(new URL(value).pathname).toLowerCase();return ({'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.webp':'image/webp','.avif':'image/avif','.svg':'image/svg+xml','.ico':'image/x-icon','.bmp':'image/bmp','.woff':'font/woff','.woff2':'font/woff2','.ttf':'font/ttf','.otf':'font/otf','.mp3':'audio/mpeg','.m4a':'audio/mp4','.aac':'audio/aac','.ogg':'audio/ogg','.oga':'audio/ogg','.opus':'audio/ogg','.wav':'audio/wav','.flac':'audio/flac','.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime','.pdf':'application/pdf','.css':'text/css','.js':'application/javascript','.mjs':'application/javascript'})[ext]||null;}catch{return null;}
+}
+function linkResourceKind(el){
+  const rel=String(el.attr('rel')||'').toLowerCase().split(/\\s+/).filter(Boolean),as=String(el.attr('as')||'').toLowerCase();
+  if(rel.includes('stylesheet'))return 'style';
+  if(rel.includes('modulepreload'))return 'script';
+  if(rel.some(x=>['icon','apple-touch-icon','apple-touch-startup-image','mask-icon'].includes(x)))return 'image';
+  if(rel.includes('preload')){if(as==='style')return 'style';if(as==='script'||as==='worker')return 'script';if(as==='image')return 'image';if(as==='font')return 'font';if(as==='audio'||as==='video')return 'media';return 'resource';}
+  return 'resource';
+}
+const lazySrcAttrs=['data-src','data-original','data-lazy-src','data-lazy','data-image','data-img','data-url'];
+const lazySrcsetAttrs=['data-srcset','data-lazy-srcset'];
+const lazyBgAttrs=['data-background','data-bg','data-background-image','data-lazy-background'];
 function compactText(value,max=280){const t=String(value||'').replace(/\s+/g,' ').trim();return t.length>max?t.slice(0,max-1)+'…':t;}
 function collectPageHints($,rawHtml,base){
   const links=[]; const media=[]; const seenLinks=new Set(); const seenMedia=new Set();
@@ -181,10 +195,10 @@ function previewBootstrap(base,id){
   `window.__NEKOROUTE_REMOTE_BASE__=REMOTE_BASE;window.__NEKOROUTE_SESSION__=SID;\n`+
   `try{const f=window.fetch.bind(window);window.fetch=function(input,init){init=init||{};let raw=typeof input==='string'||input instanceof URL?String(input):input&&input.url;let method=String(init.method||(input&&input.method)||'GET').toUpperCase();if(!raw||raw.startsWith('/api/preview-'))return f(input,init);if(method!=='GET'&&method!=='HEAD')return Promise.reject(new TypeError('NekoRoute sandbox blocks write fetch methods'));const next=Object.assign({},init,{method,credentials:'omit'});delete next.mode;return f(runtime(raw,'fetch'),next)}}catch(_){};\n`+
   `try{const o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){const args=[].slice.call(arguments);const m=String(method||'GET').toUpperCase();if(m==='GET'||m==='HEAD')args[1]=runtime(url,'fetch');else args[1]='/api/preview-runtime-blocked/'+encodeURIComponent(SID);return o.apply(this,args)}}catch(_){};\n`+
-  `try{const orig=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){const n=String(name).toLowerCase(),tag=this.tagName;if(n==='src'&&tag==='IFRAME')value=page(value);else if(n==='src'&&tag==='SCRIPT')value=resource(value,'script');else if(n==='href'&&tag==='LINK')value=resource(value,'style');else if(n==='src'&&/^(IMG|SOURCE|VIDEO|AUDIO|TRACK)$/.test(tag))value=resource(value,'resource');return orig.call(this,name,value)}}catch(_){};\n`+
+  `try{const orig=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){const n=String(name).toLowerCase(),tag=this.tagName;if(n==='src'&&tag==='IFRAME')value=page(value);else if(n==='src'&&tag==='SCRIPT')value=resource(value,'script');else if(n==='href'&&tag==='LINK'){const rel=String(this.getAttribute('rel')||'').toLowerCase(),as=String(this.getAttribute('as')||'').toLowerCase();const kind=rel.includes('stylesheet')?'style':rel.includes('modulepreload')?'script':rel.includes('icon')?'image':rel.includes('preload')?(as==='style'?'style':as==='script'?'script':as==='image'?'image':as==='font'?'font':/^(audio|video)$/.test(as)?'media':'resource'):'resource';value=resource(value,kind)}else if(n==='src'&&tag==='IMG')value=resource(value,'image');else if(n==='src'&&/^(SOURCE|VIDEO|AUDIO|TRACK)$/.test(tag))value=resource(value,'media');else if(n==='poster'&&tag==='VIDEO')value=resource(value,'image');else if(n==='srcset'&&/^(IMG|SOURCE)$/.test(tag))value=String(value).split(',').map(p=>{const b=p.trim().split(/\\s+/);if(b[0])b[0]=resource(b[0],'image');return b.join(' ')}).join(', ');else if(/^data-(?:src|original|lazy-src|image|img)$/.test(n)&&tag==='IMG')value=resource(value,'image');return orig.call(this,name,value)}}catch(_){};\n`+
   `const patch=(proto,key,kind)=>{try{const d=Object.getOwnPropertyDescriptor(proto,key);if(!d||!d.set||!d.get)return;Object.defineProperty(proto,key,{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){return d.set.call(this,resource(v,kind))}})}catch(_){}};\n`+
-  `patch(HTMLScriptElement.prototype,'src','script');patch(HTMLLinkElement.prototype,'href','style');patch(HTMLImageElement.prototype,'src','resource');if(window.HTMLSourceElement)patch(HTMLSourceElement.prototype,'src','resource');if(window.HTMLMediaElement)patch(HTMLMediaElement.prototype,'src','resource');try{const d=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');if(d&&d.set&&d.get)Object.defineProperty(HTMLIFrameElement.prototype,'src',{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){return d.set.call(this,page(v))}})}catch(_){};\n`+
-  `try{const fix=(root)=>{if(!root||root.nodeType!==1)return;const all=[root].concat(Array.from(root.querySelectorAll?root.querySelectorAll('script[src],link[href],img[src],source[src],video[src],audio[src],track[src],iframe[src]'):[]));for(const el of all){const t=el.tagName;if(t==='IFRAME'&&el.getAttribute('src'))el.setAttribute('src',page(el.getAttribute('src')));else if(t==='SCRIPT'&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'script'));else if(t==='LINK'&&el.getAttribute('href'))el.setAttribute('href',resource(el.getAttribute('href'),'style'));else if(el.getAttribute&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'resource'));}};new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)fix(n)}).observe(document.documentElement,{childList:true,subtree:true})}catch(_){};\n`+
+  `patch(HTMLScriptElement.prototype,'src','script');patch(HTMLImageElement.prototype,'src','image');patch(HTMLImageElement.prototype,'srcset','image');if(window.HTMLSourceElement){patch(HTMLSourceElement.prototype,'src','media');patch(HTMLSourceElement.prototype,'srcset','image')}if(window.HTMLMediaElement){patch(HTMLMediaElement.prototype,'src','media');try{const realPlay=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){const raw=this.getAttribute&&this.getAttribute('src');if(raw&&!localPreview(raw)){try{this.src=resource(raw,'media')}catch(_){}}return realPlay.apply(this,arguments)}}catch(_){}}if(window.HTMLVideoElement)patch(HTMLVideoElement.prototype,'poster','image');try{const RealAudio=window.Audio;if(RealAudio){const WrappedAudio=function(src){const a=new RealAudio();if(src)a.src=resource(src,'media');return a};WrappedAudio.prototype=RealAudio.prototype;Object.setPrototypeOf(WrappedAudio,RealAudio);window.Audio=WrappedAudio}}catch(_){};try{const d=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');if(d&&d.set&&d.get)Object.defineProperty(HTMLIFrameElement.prototype,'src',{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){return d.set.call(this,page(v))}})}catch(_){};\n`+`try{const cssUrl=(v)=>String(v).replace(/url\\(([^)]+)\\)/gi,(m,u)=>{u=String(u).trim().replace(/^['\"]|['\"]$/g,'');return /^(?:data:|blob:|#)/i.test(u)?m:'url(\"'+resource(u,'image')+'\")'});const sp=CSSStyleDeclaration.prototype.setProperty;CSSStyleDeclaration.prototype.setProperty=function(n,v,p){return sp.call(this,n,/background|mask|content|list-style/i.test(String(n))?cssUrl(v):v,p)};for(const k of ['background','backgroundImage','borderImage','mask','maskImage','listStyleImage']){const d=Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype,k);if(d&&d.set&&d.get)Object.defineProperty(CSSStyleDeclaration.prototype,k,{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){return d.set.call(this,cssUrl(v))}})}}catch(_){};\n`+
+  `try{const fix=(root)=>{if(!root||root.nodeType!==1)return;const all=[root].concat(Array.from(root.querySelectorAll?root.querySelectorAll('script[src],link[href],img[src],img[srcset],source[src],source[srcset],video[src],video[poster],audio[src],track[src],iframe[src],[data-src],[data-original],[data-lazy-src],[data-background],[data-bg]'):[]));for(const el of all){const t=el.tagName;if(t==='IFRAME'&&el.getAttribute('src'))el.setAttribute('src',page(el.getAttribute('src')));else if(t==='SCRIPT'&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'script'));else if(t==='LINK'&&el.getAttribute('href'))el.setAttribute('href',el.getAttribute('href'));else{if(t==='IMG'&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'image'));else if(el.getAttribute&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'media'));if((t==='IMG'||t==='SOURCE')&&el.getAttribute('srcset'))el.setAttribute('srcset',el.getAttribute('srcset'));if(t==='VIDEO'&&el.getAttribute('poster'))el.setAttribute('poster',resource(el.getAttribute('poster'),'image'));for(const a of ['data-src','data-original','data-lazy-src'])if(el.getAttribute&&el.getAttribute(a)){const k=t==='IMG'?'image':'media';el.setAttribute(a,resource(el.getAttribute(a),k));}}}};new MutationObserver(ms=>{for(const m of ms){for(const n of m.addedNodes)fix(n);if(m.type==='attributes')fix(m.target)}}).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src','srcset','href','poster','data-src','data-original','data-lazy-src','style']})}catch(_){};\n`+
   `try{const makeStore=()=>{const m=new Map();return{get length(){return m.size},key:i=>Array.from(m.keys())[i]??null,getItem:k=>m.has(String(k))?m.get(String(k)):null,setItem:(k,v)=>m.set(String(k),String(v)),removeItem:k=>m.delete(String(k)),clear:()=>m.clear()}};try{void window.localStorage}catch{Object.defineProperty(window,'localStorage',{value:makeStore()})}try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{value:makeStore()})}try{Object.defineProperty(Document.prototype,'cookie',{configurable:true,get:function(){return ''},set:function(){return true}})}catch(_){}}catch(_){};\n`+
   `try{const W=window.WebSocket;window.WebSocket=function(){throw new DOMException('WebSocket disabled in NekoRoute sandbox','SecurityError')};window.WebSocket.prototype=W&&W.prototype}catch(_){};\n`+
   `})();`;
@@ -203,11 +217,24 @@ function rewriteHtml(html,base,id,session){
   $('a[href]').each((_i,e)=>{const a=$(e),raw=a.attr('href');if(!raw||raw.startsWith('#'))return;const u=absolute(raw,base);if(!u){a.attr('href','#').attr('data-neko-blocked','true');return;}const explicit=a.is('[download]')||mediaExt.test(u);if(explicit){a.attr('href',registerResource(id,session,u,'download',base)+'?download=1').attr('rel','nofollow noopener');}else{a.attr('href',pageUrl(id,u)).attr('data-neko-url',u).removeAttr('target');}});
 
   for(const[sel,attr,kind]of[
-    ['img','src','resource'],['source','src','media'],['video','src','media'],['video','poster','resource'],['audio','src','media'],['track','src','media'],
-    ['link[href]','href','style'],['iframe[src]','src','page']
+    ['img','src','image'],['input[type="image"]','src','image'],['source','src','media'],['video','src','media'],['video','poster','image'],['audio','src','media'],['track','src','media'],['iframe[src]','src','page']
   ])$(sel).each((_i,e)=>{const el=$(e),u=absolute(el.attr(attr),base);if(!u)return;if(kind==='page')el.attr(attr,pageUrl(id,u));else el.attr(attr,registerResource(id,session,u,kind,base));el.removeAttr('integrity').removeAttr('crossorigin').removeAttr('nonce');});
 
+  // Link elements are not all stylesheets. Preserve icons, module preloads, image/font preloads, etc.
+  $('link[href]').each((_i,e)=>{const el=$(e),rel=String(el.attr('rel')||'').toLowerCase();if(/(?:preconnect|dns-prefetch)/.test(rel)){el.remove();return;}const u=absolute(el.attr('href'),base);if(!u)return;el.attr('href',registerResource(id,session,u,linkResourceKind(el),base)).removeAttr('integrity').removeAttr('crossorigin').removeAttr('nonce');});
+
   $('img[srcset],source[srcset]').each((_i,e)=>$(e).attr('srcset',rewriteSrcset($(e).attr('srcset'),base,id,session)));
+
+  // Common lazy-loading conventions. Rewrite both the lazy attribute and the live attribute so pages
+  // remain visible even when their lazy-loader only partly works inside an opaque sandbox origin.
+  $('img,source,video').each((_i,e)=>{const el=$(e);for(const attr of lazySrcAttrs){const raw=el.attr(attr);if(!raw)continue;const u=absolute(raw,base);if(!u)continue;const kind=el.is('img')?'image':'media',proxied=registerResource(id,session,u,kind,base);el.attr(attr,proxied);if(el.is('img')&&(!el.attr('src')||/^(?:data:|about:blank|#|javascript:)/i.test(el.attr('src'))))el.attr('src',proxied);if(el.is('source')&&!el.attr('src'))el.attr('src',proxied);}
+    for(const attr of lazySrcsetAttrs){const raw=el.attr(attr);if(!raw)continue;const proxied=rewriteSrcset(raw,base,id,session);el.attr(attr,proxied);if(!el.attr('srcset'))el.attr('srcset',proxied);}
+  });
+  $('[data-background],[data-bg],[data-background-image],[data-lazy-background]').each((_i,e)=>{const el=$(e);for(const attr of lazyBgAttrs){const raw=el.attr(attr);if(!raw)continue;const u=absolute(raw,base);if(!u)continue;const proxied=registerResource(id,session,u,'image',base);el.attr(attr,proxied);const current=String(el.attr('style')||'');if(!/background(?:-image)?\s*:/i.test(current))el.attr('style',`${current}${current&&!current.trim().endsWith(';')?';':''}background-image:url("${proxied}")`);break;}});
+
+  // SVG image/use references are common for logos and icon sprites.
+  for(const sel of ['image[href]','use[href]','image[xlink\:href]','use[xlink\:href]'])$(sel).each((_i,e)=>{const el=$(e),attr=el.attr('href')?'href':'xlink:href',u=absolute(el.attr(attr),base);if(u)el.attr(attr,registerResource(id,session,u,'image',base));});
+
   $('[style]').each((_i,e)=>$(e).attr('style',rewriteCss($(e).attr('style'),base,id,session)));$('style').each((_i,e)=>$(e).text(rewriteCss($(e).html()||'',base,id,session)));
 
   // GET/search forms remain usable; write forms stay disabled in embedded preview.
@@ -228,8 +255,84 @@ function rewriteHtml(html,base,id,session){
 }
 
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const errorHtml=m=>`<!doctype html><html><body style="background:#050807;color:#e4e4e7;font:15px system-ui"><div style="max-width:760px;margin:64px auto;padding:24px;border:1px solid #27272a;border-radius:20px"><h1 style="color:#34d399">Preview blocked</h1><p>${escapeHtml(m||'Preview failed')}</p></div></body></html>`;
-function nonHtmlPreview(id,session,url,type){const src=registerResource(id,session,url,'download');const isAudio=type.startsWith('audio/'),isVideo=type.startsWith('video/'),isImage=type.startsWith('image/'),isPdf=type.includes('pdf');const player=isAudio?`<audio controls style="width:100%" src="${src}"></audio>`:isVideo?`<video controls style="max-width:100%;max-height:70vh" src="${src}"></video>`:isImage?`<img style="max-width:100%;max-height:75vh" src="${src}"/>`:isPdf?`<iframe style="width:100%;height:70vh;border:0" src="${src}"></iframe>`:'';return`<!doctype html><html><body style="background:#050807;color:#e4e4e7;font:15px system-ui"><div style="max-width:1000px;margin:30px auto;padding:24px"><h2 style="color:#34d399">Proxied resource</h2><p>${escapeHtml(type)}</p>${player}<p><a style="color:#34d399" href="${src}?download=1">Download this page-linked resource through the selected proxy</a></p></div></body></html>`;}
+const previewErrorHtml=input=>{
+  const x=typeof input==='string'?{message:input}:input||{};
+  const code=Number(x.statusCode||0);
+  const statusText=code?(http.STATUS_CODES[code]||'HTTP error'):'';
+  const title=code?`HTTP ${code} ${statusText}`:'Proxy transport error';
+  const accent=code>=500?'#fb7185':code>=400?'#fbbf24':'#34d399';
+  const node=x.node;
+  const proxy=node?`${countryName(node.country)} (${normalizeCountry(node.country)}) · ${node.protocol} · ${node.city||'Unknown city'}${node.latencyMs!=null?` · ${node.latencyMs} ms`:''}`:'';
+  const body=x.bodyExcerpt?`<pre style="white-space:pre-wrap;max-height:220px;overflow:auto;background:#020403;border:1px solid #27272a;border-radius:12px;padding:12px;color:#a1a1aa;font:12px/1.45 ui-monospace,monospace">${escapeHtml(x.bodyExcerpt)}</pre>`:'';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#050807;color:#e4e4e7;font:15px system-ui"><div style="max-width:820px;margin:64px auto;padding:28px;border:1px solid #27272a;border-radius:20px;background:#080b09"><div style="font:700 12px ui-monospace,monospace;color:#71717a;text-transform:uppercase;letter-spacing:.12em">NekoRoute preview</div><h1 style="margin:10px 0 6px;color:${accent};font-size:30px">${escapeHtml(title)}</h1><p style="color:#d4d4d8">${escapeHtml(x.message||'The selected proxy could not load this page.')}</p>${x.target?`<p style="overflow-wrap:anywhere;color:#a1a1aa"><b style="color:#e4e4e7">URL:</b> ${escapeHtml(x.target)}</p>`:''}${proxy?`<p style="color:#a1a1aa"><b style="color:#e4e4e7">Proxy:</b> ${escapeHtml(proxy)}</p>`:''}${code?`<p style="color:#a1a1aa">The proxy connected successfully, but the upstream website returned <b style="color:${accent}">${code}</b>. Try another node if the site is blocking this exit.</p>`:`<p style="color:#a1a1aa">No HTTP status code was received. This usually means the proxy socket/TLS connection closed, timed out, or failed before the website responded.</p>`}${body}</div><script>try{parent.postMessage({type:'nekoroute-preview-error',statusCode:${code||0},statusText:${JSON.stringify(statusText)},message:${JSON.stringify(String(x.message||''))}},'*')}catch(_){}</script></body></html>`;
+};
+const errorHtml=m=>previewErrorHtml(m);
+function nonHtmlPreview(id,session,url,type){const src=registerResource(id,session,url,'download');const isAudio=type.startsWith('audio/'),isVideo=type.startsWith('video/'),isImage=type.startsWith('image/'),isPdf=type.includes('pdf');const player=isAudio?`<audio controls preload="metadata" style="width:100%" src="${src}"></audio>`:isVideo?`<video controls preload="metadata" playsinline style="max-width:100%;max-height:70vh" src="${src}"></video>`:isImage?`<img style="max-width:100%;max-height:75vh" src="${src}"/>`:isPdf?`<iframe style="width:100%;height:70vh;border:0" src="${src}"></iframe>`:'';return`<!doctype html><html><body style="background:#050807;color:#e4e4e7;font:15px system-ui"><div style="max-width:1000px;margin:30px auto;padding:24px"><h2 style="color:#34d399">Proxied resource</h2><p>${escapeHtml(type)}</p>${player}<p><a style="color:#34d399" href="${src}?download=1">Download this page-linked resource through the selected proxy</a></p></div></body></html>`;}
+
+async function pipeProxyStream(req,res,{node,target,kind='media',referer='',download=false,cors=false}={}){
+  let current=target instanceof URL?target:new URL(target);
+  let redirects=0;
+  while(true){
+    const range=req.get('range');
+    const upstream=await openProxyStream(node,current,{
+      timeoutMs:config.previewTimeoutMs,
+      method:req.method==='HEAD'?'HEAD':'GET',
+      headers:{
+        accept:kind==='media'?'audio/*,video/*,*/*;q=0.6':'*/*',
+        'user-agent':config.previewUserAgent,
+        'accept-language':req.get('accept-language')||'en-GB,en;q=0.9',
+        ...(referer?{referer}:{}),
+        ...(range?{range}:{}),
+        ...(req.get('if-range')?{'if-range':req.get('if-range')}:{}),
+        ...(req.get('if-none-match')?{'if-none-match':req.get('if-none-match')}:{}),
+        ...(req.get('if-modified-since')?{'if-modified-since':req.get('if-modified-since')}:{}),
+      }
+    });
+    const r=upstream.response;
+    if(upstream.statusCode>=300&&upstream.statusCode<400&&r.headers.location&&redirects<5){
+      const next=absolute(r.headers.location,current);
+      r.resume();
+      if(!next){r.destroy();return res.status(502).type('text').send('Invalid upstream redirect');}
+      current=await validatePublicTarget(next);
+      redirects++;
+      continue;
+    }
+    let type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
+    const guessed=guessMimeFromUrl(current.toString());
+    if((type.includes('octet-stream')||type==='text/plain'||!r.headers['content-type'])&&guessed)type=guessed;
+    const mediaLike=type.startsWith('audio/')||type.startsWith('video/')||type.includes('octet-stream')||/\.(?:mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|webm|mov)(?:$|[?#])/i.test(current.toString());
+    if(kind==='media'&&!mediaLike){r.destroy();return res.status(415).end();}
+
+    const length=Number(r.headers['content-length']||0);
+    if(length&&length>config.previewMaxStreamBytes){r.destroy();return res.status(413).type('text').send(`Stream exceeds ${config.previewMaxStreamBytes} byte limit`);}
+    const headers={
+      'content-type':type||'application/octet-stream',
+      'cache-control':'private, max-age=120',
+      'accept-ranges':r.headers['accept-ranges']||'bytes',
+      'cross-origin-resource-policy':'cross-origin'
+    };
+    for(const h of ['content-length','content-range','etag','last-modified'])if(r.headers[h])headers[h]=r.headers[h];
+    if(cors){headers['access-control-allow-origin']='*';headers['access-control-expose-headers']='content-type,content-length,content-range,accept-ranges,etag,last-modified';}
+    if(download){
+      const remoteDisposition=String(r.headers['content-disposition']||'');
+      const match=/filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(remoteDisposition);
+      let filename=path.basename(current.pathname)||'download';
+      if(match?.[1]){try{filename=decodeURIComponent(match[1].trim());}catch{filename=match[1].trim();}}
+      headers['content-disposition']=`attachment; filename="${filename.replace(/["\\\r\n]/g,'_')}"`;
+    }
+    res.status(upstream.statusCode||200).set(headers);
+    if(req.method==='HEAD'){r.destroy();return res.end();}
+
+    let sent=0,closed=false;
+    const abort=()=>{if(closed)return;closed=true;r.destroy();};
+    res.once('close',abort);
+    r.on('data',chunk=>{sent+=chunk.length;if(sent>config.previewMaxStreamBytes){r.destroy(new Error('Preview stream byte limit exceeded'));if(!res.destroyed)res.destroy();}});
+    r.on('error',()=>{if(!res.headersSent)res.status(502).end();else if(!res.destroyed)res.destroy();});
+    r.on('end',()=>{closed=true;res.removeListener('close',abort);});
+    r.pipe(res);
+    return;
+  }
+}
 
 
 const browserTickets=new Map();
@@ -245,10 +348,10 @@ const previewSessionHandler=async(req,res,next)=>{
     const node=requested||pool.select(selector(req.body));
     if(!node||node.status!=='online')return res.status(503).json({error:'No healthy proxy matches that selection'});
     const id=randomUUID(),expiresAt=Date.now()+config.previewSessionTtlMs;
-    sessions.set(id,{nodeId:node.id,expiresAt,resources:new Map()});
+    sessions.set(id,{nodeId:node.id,expiresAt,resources:new Map(),currentPage:target.toString()});
     res.json({
       ok:true,sessionId:id,expiresAt:new Date(expiresAt).toISOString(),url:target.toString(),frameUrl:pageUrl(id,target.toString()),node:safeNode(node),
-      capabilities:{navigation:true,getForms:true,pageLinkedMedia:true,pageLinkedDownloads:true,remoteScripts:true,sandboxedScripts:true,runtimeGetFetch:true,cookies:false,postForms:false,webSockets:false}
+      capabilities:{navigation:true,getForms:true,pageLinkedMedia:true,pageLinkedDownloads:true,audioVideoPlayback:true,rangeStreaming:true,remoteScripts:true,sandboxedScripts:true,runtimeGetFetch:true,cookies:false,postForms:false,webSockets:false}
     });
   }catch(e){next(e);}
 };
@@ -264,16 +367,26 @@ app.get('/api/preview/:id',async(req,res)=>{
   const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).type('html').send(errorHtml('Selected proxy is unavailable.'));
   try{
     const target=await validatePublicTarget(String(req.query.url||''));
+    s.currentPage=target.toString();
     const r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:config.previewMaxHtmlBytes,headers:{accept:'text/html,application/xhtml+xml,audio/*,video/*,image/*,application/pdf;q=0.8,text/plain;q=0.7,*/*;q=0.2','user-agent':config.previewUserAgent,'accept-language':'en-GB,en;q=0.9'}});
     if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){const next=absolute(r.headers.location,target);if(next){await validatePublicTarget(next);return res.redirect(302,pageUrl(req.params.id,next));}}
     const type=String(r.headers['content-type']||'text/html').toLowerCase();
+    if(r.statusCode>=400){
+      const textual=type.includes('text/')||type.includes('json')||type.includes('html')||type.includes('xml');
+      const excerpt=textual?String(r.body||'').replace(/\s+/g,' ').trim().slice(0,1800):'';
+      return res.status(r.statusCode).type('html').send(previewErrorHtml({
+        statusCode:r.statusCode,
+        message:`The upstream website returned HTTP ${r.statusCode} through this proxy.`,
+        node,target:target.toString(),bodyExcerpt:excerpt
+      }));
+    }
     if(!type.includes('html')){
       const allowed=type.startsWith('audio/')||type.startsWith('video/')||type.startsWith('image/')||type.includes('application/pdf');
       if(allowed)return res.status(200).type('html').send(nonHtmlPreview(req.params.id,s,target.toString(),type));
       return res.status(415).type('html').send(errorHtml(`Preview cannot render ${type}.`));
     }
     res.status(r.statusCode||200).set({'cache-control':'no-store','content-type':'text/html; charset=utf-8','cross-origin-resource-policy':'cross-origin'}).send(rewriteHtml(r.body,target.toString(),req.params.id,s));
-  }catch(e){res.status(400).type('html').send(errorHtml(e.message||e));}
+  }catch(e){res.status(502).type('html').send(previewErrorHtml({message:e.message||String(e),node,target:s.currentPage||String(req.query.url||'')}));}
 });
 
 const previewCors=(req,res)=>{
@@ -294,16 +407,21 @@ app.all('/api/preview-runtime/:id',async(req,res)=>{
   const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).json({error:'Selected proxy is unavailable'});
   try{
     let target=await validatePublicTarget(String(req.query.url||''));
+    const kind=String(req.query.kind||'');
+    if(req.method==='GET'&&(kind==='media'||kind==='fetch')){
+      return await pipeProxyStream(req,res,{node,target,kind:kind==='media'?'media':'download',referer:s.currentPage||target.origin+'/',cors:true});
+    }
     let r,redirects=0;
     while(true){
       const range=req.get('range');
-      r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:config.previewMaxResourceBytes,headers:{accept:req.get('accept')||'*/*','user-agent':config.previewUserAgent,'accept-language':req.get('accept-language')||'en-GB,en;q=0.9',referer:target.origin+'/',...(range?{range}:{})},headersOnly:req.method==='HEAD'});
+      r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:config.previewMaxResourceBytes,headers:{accept:req.get('accept')||'*/*','user-agent':config.previewUserAgent,'accept-language':req.get('accept-language')||'en-GB,en;q=0.9',referer:s.currentPage||target.origin+'/',...(range?{range}:{})},headersOnly:req.method==='HEAD'});
       if(r.statusCode>=300&&r.statusCode<400&&r.headers.location&&redirects<5){const next=absolute(r.headers.location,target);if(!next)break;target=await validatePublicTarget(next);redirects++;continue;}
       break;
     }
-    const type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
-    const kind=String(req.query.kind||'');
-    const headers={'content-type':r.headers['content-type']||'application/octet-stream'};
+    let type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
+    const guessed=guessMimeFromUrl(target.toString());
+    if((type.includes('octet-stream')||type==='text/plain'||!r.headers['content-type'])&&guessed)type=guessed;
+    const headers={'content-type':type||'application/octet-stream','cache-control':'private, max-age=120','cross-origin-resource-policy':'cross-origin'};
     for(const h of ['content-range','accept-ranges','etag','last-modified'])if(r.headers[h])headers[h]=r.headers[h];
     if(req.method==='HEAD')return res.status(r.statusCode||200).set(headers).end();
     if(type.includes('text/css')||kind==='style'){
@@ -325,16 +443,26 @@ app.get('/api/preview-resource/:id/:token',async(req,res)=>{
   const entry=s.resources.get(String(req.params.token));if(!entry)return res.status(404).end();
   const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).end();
   try{
-    const target=await validatePublicTarget(entry.url);const range=req.get('range');
-    const r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:req.query.download==='1'?config.previewMaxDownloadBytes:config.previewMaxResourceBytes,headers:{accept:'*/*','user-agent':config.previewUserAgent,...(entry.referer?{referer:entry.referer}:{}),...(range?{range}:{})}});
+    const target=await validatePublicTarget(entry.url);
+    if(entry.kind==='media'||entry.kind==='download'){
+      return await pipeProxyStream(req,res,{node,target,kind:entry.kind==='media'?'media':'download',referer:entry.referer||s.currentPage||target.origin+'/',download:req.query.download==='1',cors:true});
+    }
+    const range=req.get('range');
+    const acceptByKind={image:'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',style:'text/css,*/*;q=0.2',script:'application/javascript,text/javascript,*/*;q=0.2',font:'font/woff2,font/woff,application/font-woff,application/octet-stream;q=0.8,*/*;q=0.2',media:'audio/*,video/*,*/*;q=0.5',download:'*/*',resource:'*/*'};
+    const r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:req.query.download==='1'?config.previewMaxDownloadBytes:config.previewMaxResourceBytes,headers:{accept:acceptByKind[entry.kind]||'*/*','user-agent':config.previewUserAgent,'accept-language':'en-GB,en;q=0.9',...(entry.referer?{referer:entry.referer}:s.currentPage?{referer:s.currentPage}:{}),...(range?{range}:{})}});
     if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){const next=absolute(r.headers.location,target);if(next){await validatePublicTarget(next);const newUrl=registerResource(req.params.id,s,next,entry.kind,entry.referer);return res.redirect(302,newUrl+(req.query.download==='1'?'?download=1':''));}}
-    const type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
+    let type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
+    const guessed=guessMimeFromUrl(target.toString());
+    if((type.includes('octet-stream')||type==='text/plain'||!r.headers['content-type'])&&guessed)type=guessed;
     const scriptAllowed=entry.kind==='script'&&(/(?:javascript|ecmascript)/i.test(type)||type.includes('text/js')||type.startsWith('text/')||type.includes('application/octet-stream'));
     const styleAllowed=entry.kind==='style'&&(type.includes('css')||type.startsWith('text/')||type.includes('application/octet-stream'));
-    const normalAllowed=scriptAllowed||styleAllowed||type.startsWith('image/')||type.startsWith('font/')||type.startsWith('audio/')||type.startsWith('video/')||type.includes('text/css')||type.includes('font-woff')||type.includes('application/pdf');
+    const imageAllowed=entry.kind==='image'&&(type.startsWith('image/')||type.includes('octet-stream'));
+    const fontAllowed=entry.kind==='font'&&(type.startsWith('font/')||type.includes('font-woff')||type.includes('octet-stream'));
+    const mediaAllowed=entry.kind==='media'&&(type.startsWith('audio/')||type.startsWith('video/')||type.includes('octet-stream'));
+    const normalAllowed=scriptAllowed||styleAllowed||imageAllowed||fontAllowed||mediaAllowed||type.startsWith('image/')||type.startsWith('font/')||type.startsWith('audio/')||type.startsWith('video/')||type.includes('text/css')||type.includes('font-woff')||type.includes('application/pdf');
     const downloadAllowed=entry.kind==='download'&&(normalAllowed||type.includes('application/octet-stream')||type.includes('application/force-download')||type.includes('application/download')||type.includes('application/x-download')||type.includes('binary/octet-stream'));
     if(!normalAllowed&&!downloadAllowed)return res.status(415).end();
-    const headers={'cache-control':'private, max-age=120','content-type':r.headers['content-type']||'application/octet-stream','access-control-allow-origin':'*','cross-origin-resource-policy':'cross-origin'};
+    const headers={'cache-control':'private, max-age=120','content-type':type||r.headers['content-type']||'application/octet-stream','access-control-allow-origin':'*','cross-origin-resource-policy':'cross-origin'};
     if(r.headers['content-range'])headers['content-range']=r.headers['content-range'];if(r.headers['accept-ranges'])headers['accept-ranges']=r.headers['accept-ranges'];
     if(req.query.download==='1'){
       const remoteDisposition=String(r.headers['content-disposition']||'');const match=/filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(remoteDisposition);let filename=path.basename(target.pathname)||'download';

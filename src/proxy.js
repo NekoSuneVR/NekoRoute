@@ -88,3 +88,49 @@ export function requestViaProxy(proxy, targetUrl, {
     req.end();
   });
 }
+export function openProxyStream(proxy, targetUrl, {
+  timeoutMs = 15000,
+  headers = {},
+  method = 'GET'
+} = {}) {
+  const target = targetUrl instanceof URL ? targetUrl : new URL(targetUrl);
+  const lib = target.protocol === 'http:' ? http : https;
+  const agent = makeAgent(proxy, target.protocol);
+  const started = Date.now();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const req = lib.request(target, {
+      agent,
+      method: String(method || 'GET').toUpperCase(),
+      timeout: timeoutMs,
+      headers: {
+        'user-agent': 'NekoRoute/0.5 (+proxied-media-stream)',
+        accept: '*/*',
+        'accept-encoding': 'identity',
+        ...headers
+      }
+    }, response => {
+      if (settled) {
+        response.destroy();
+        return;
+      }
+      settled = true;
+      resolve({
+        request: req,
+        response,
+        statusCode: response.statusCode || 0,
+        headers: response.headers,
+        latencyMs: Date.now() - started
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('Proxy request timed out')));
+    req.on('error', error => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    req.end();
+  });
+}
+

@@ -1,4 +1,4 @@
-import { esc, countryLabel, countryName, regions, createNodePager } from '/common.js?v=0504-20260914T1510';
+import { esc, countryLabel, countryName, regions, createNodePager } from '/common.js?v=0506-20260914T1628';
 
 const $ = s => document.querySelector(s);
 const value = (s, fallback = '') => $(s)?.value ?? fallback;
@@ -9,6 +9,7 @@ let session = null;
 let history = [];
 let historyIndex = -1;
 let frameWatchdog = null;
+let frameReportedError = null;
 
 function fillFilters() {
   setHtml('#regionSelect','<option value="">All regions</option>'+regions.map(r=>`<option>${esc(r)}</option>`).join(''));
@@ -29,6 +30,7 @@ function navigate(url,{push=true}={}){
   const input=$('#urlInput');
   if(input)input.value=url;
   if(push){history=history.slice(0,historyIndex+1);history.push(url);historyIndex=history.length-1;}
+  frameReportedError=null;
   setText('#frameStatus','Loading through proxy…');
   const frame=$('#previewFrame');
   if(frame){
@@ -59,8 +61,8 @@ $('#realFirefoxBtn')?.addEventListener('click',()=>{const q=new URLSearchParams(
 $('#backBtn')?.addEventListener('click',()=>{if(historyIndex>0){historyIndex--;navigate(history[historyIndex],{push:false});}});
 $('#forwardBtn')?.addEventListener('click',()=>{if(historyIndex<history.length-1){historyIndex++;navigate(history[historyIndex],{push:false});}});
 $('#reloadBtn')?.addEventListener('click',()=>{if(historyIndex>=0)navigate(history[historyIndex],{push:false});});
-$('#previewFrame')?.addEventListener('load',()=>{if(frameWatchdog){clearTimeout(frameWatchdog);frameWatchdog=null;}setText('#frameStatus',session?`Proxied preview active · session expires ${new Date(session.expiresAt).toLocaleTimeString()}`:'Proxy preview');});
-window.addEventListener('message',event=>{const frame=$('#previewFrame');if(!frame||event.source!==frame.contentWindow)return;if(event.data?.type==='nekoroute-preview-nav'&&typeof event.data.url==='string')navigate(event.data.url,{push:true});});
+$('#previewFrame')?.addEventListener('load',()=>{if(frameWatchdog){clearTimeout(frameWatchdog);frameWatchdog=null;}if(frameReportedError){setText('#frameStatus',frameReportedError);return;}setText('#frameStatus',session?`Proxied preview active · session expires ${new Date(session.expiresAt).toLocaleTimeString()}`:'Proxy preview');});
+window.addEventListener('message',event=>{const frame=$('#previewFrame');if(!frame||event.source!==frame.contentWindow)return;if(event.data?.type==='nekoroute-preview-nav'&&typeof event.data.url==='string')navigate(event.data.url,{push:true});if(event.data?.type==='nekoroute-preview-error'){const code=Number(event.data.statusCode||0);frameReportedError=code?`Upstream HTTP ${code}${event.data.statusText?' '+event.data.statusText:''}`:`Proxy transport error: ${event.data.message||'request failed'}`;setText('#frameStatus',frameReportedError);}});
 
 async function init(){const statsRes=await fetch('/api/stats');stats=await statsRes.json();fillFilters();await loadNodes(true);updateHistoryButtons();}
 init().catch(error=>setText('#routeInfo',error.message));

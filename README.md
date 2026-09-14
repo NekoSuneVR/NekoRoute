@@ -1,4 +1,4 @@
-# NekoRoute v0.5.4
+# NekoRoute v0.5.6
 
 NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a sandboxed interactive server-side preview, and can hand a selected route to an optional **local Firefox Bridge** for full browser compatibility and direct-to-PC downloads.
 
@@ -79,7 +79,7 @@ The scanner fetches a public website through the selected proxy without executin
 
 ## Public proxy providers
 
-NekoRoute v0.5.4 merges and de-duplicates multiple independent public sources:
+NekoRoute v0.5.6 merges and de-duplicates multiple independent public sources:
 
 - **Proxifly** — metadata-rich HTTP/HTTPS/SOCKS lists.
 - **ProxyScrape** — metadata-rich HTTP/HTTPS/SOCKS lists.
@@ -261,3 +261,14 @@ BROWSER_TICKET_TTL_MS=90000
 Public server-side URL tools are restricted to HTTP/HTTPS ports 80/443. NekoRoute rejects localhost/private/link-local/CGNAT/reserved targets and credentials embedded in URLs.
 
 The local Firefox Bridge is different: after the route ticket is consumed, the visitor's Firefox communicates directly with the selected public proxy. The NekoRoute VPS is no longer in that page/download data path. The public proxy itself remains untrusted and can observe the visitor's connection to it.
+
+## v0.5.5 preview asset compatibility
+
+The sandboxed Preview now rewrites additional asset patterns used by modern sites: lazy image attributes (`data-src`, `data-original`, `data-lazy-src`, lazy `srcset`), `<picture>/<source>`, CSS background/mask/list-style URLs set at runtime, SVG image/use references, favicons and typed preload/modulepreload links. Dynamic preview requests use the current proxied page as their Referer, and generic/octet-stream image/font/media responses can be MIME-inferred from the resource URL. The default preview resource cap is 16 MiB.
+
+
+## v0.5.6 HTTP status and media streaming
+
+Preview error pages now show the actual upstream HTTP status when a selected proxy receives a response such as `403 Forbidden`, `404 Not Found`, `429 Too Many Requests`, or `500/502/503`. Transport failures such as `Socket closed`, TLS errors, and timeouts are labelled separately because no HTTP status code was received. The parent Preview status bar also mirrors that result.
+
+Audio/video and page-linked downloads now use a streaming relay rather than buffering the whole response in NekoRoute memory. `Range` requests, `206 Partial Content`, `Content-Range`, `Accept-Ranges`, `ETag`, and `Last-Modified` are forwarded so HTML5 audio/video players can seek and play progressively. Streamed bytes are relayed through the selected proxy and are not written to NekoRoute disk. `PREVIEW_MAX_STREAM_BYTES` defaults to 512 MiB per response.

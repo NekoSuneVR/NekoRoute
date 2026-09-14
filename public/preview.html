@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110b" />
   <meta name="nekoroute-bridge" content="v1" />
   <title>NekoRoute — Proxy Preview</title>
-  <link rel="stylesheet" href="/app.css?v=0504-20260914T1510" />
+  <link rel="stylesheet" href="/app.css?v=0506-20260914T1628" />
 </head>
 <body class="min-h-screen text-zinc-100 antialiased">
   <div class="fixed inset-0 -z-20 bg-[#050807]"></div>
@@ -42,12 +42,12 @@
 
     <section class="mt-4 overflow-hidden rounded-[1.75rem] border border-zinc-800 bg-[#080d0a] shadow-2xl shadow-black/30">
       <div class="flex items-center justify-between border-b border-zinc-800 bg-black/20 px-4 py-3"><div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-rose-400/80"></span><span class="h-2.5 w-2.5 rounded-full bg-amber-300/80"></span><span class="h-2.5 w-2.5 rounded-full bg-emerald-400/80"></span></div><div id="frameStatus" class="text-xs text-zinc-500">Proxied preview idle</div><div class="w-14"></div></div>
-      <iframe id="previewFrame" title="NekoRoute sandboxed interactive website preview" sandbox="allow-scripts allow-downloads" referrerpolicy="no-referrer" class="block h-[72vh] min-h-[560px] w-full bg-white" src="/preview-placeholder.html?v=0504-20260914T1510"></iframe>
+      <iframe id="previewFrame" title="NekoRoute sandboxed interactive website preview" sandbox="allow-scripts allow-downloads" allow="autoplay; fullscreen; picture-in-picture" referrerpolicy="no-referrer" class="block h-[72vh] min-h-[560px] w-full bg-white" src="/preview-placeholder.html?v=0506-20260914T1628"></iframe>
     </section>
 
     <div class="mt-4 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/70"><b>Public professional-use notice:</b> Proxy Preview now loads the remote page's CSS and JavaScript through the selected proxy inside a sandboxed iframe. Script GET/HEAD fetch/XHR calls and dynamically-added page assets are also routed through the preview session. Cookies, authenticated storage, write/POST requests, service workers and WebSockets remain disabled; use Real Firefox mode when a site needs those full browser features. Private/reserved networks and non-standard web ports are blocked.</div>
 
     <div class="mt-6 rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4 text-sm text-amber-100/75"><b>Responsible-use notice:</b> NekoRoute is provided for regional availability, moderation, compatibility and defensive security analysis. Users are responsible for how they use the service and for following applicable law and website terms. Public proxies are third-party infrastructure and NekoRoute does not guarantee anonymity, privacy, availability, or safety.</div>
   </main>
-  <script src="/preview.js?v=0504-20260914T1510" type="module"></script>
+  <script src="/preview.js?v=0506-20260914T1628" type="module"></script>
 </body></html>
