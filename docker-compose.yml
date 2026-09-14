@@ -1,11 +1,33 @@
 services:
+  volume-init:
+    build: .
+    image: nekoroute:local
+    container_name: nekoroute-volume-init
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /app/data && chown -R 1000:1000 /app/data"]
+    volumes:
+      - proxy_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    restart: "no"
+
   nekoroute:
     build: .
     image: nekoroute:local
     container_name: nekoroute
     restart: unless-stopped
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     env_file:
       - .env
+    environment:
+      # Prefer IPv4 when a Docker host advertises unusable IPv6 DNS results.
+      NODE_OPTIONS: --dns-result-order=ipv4first
     ports:
       - "3210:3210"
     volumes:
