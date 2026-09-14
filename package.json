@@ -1,6 +1,6 @@
 {
   "name": "nekoroute",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "Public regional availability diagnostics, browser-like safe proxy previews, self-hosted/no-key threat checks, and persistent proxy health tracking.",

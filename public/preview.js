@@ -1,4 +1,4 @@
-import { esc, countryLabel, countryName, regions } from '/common.js?v=20260914T142923';
+import { esc, countryLabel, countryName, regions } from '/common.js?v=1789393577';
 
 const $ = s => document.querySelector(s);
 const value = (s, fallback = '') => $(s)?.value ?? fallback;
@@ -8,6 +8,7 @@ let stats = null;
 let session = null;
 let history = [];
 let historyIndex = -1;
+let frameWatchdog = null;
 
 function fillFilters() {
   setHtml('#regionSelect','<option value="">All regions</option>'+regions.map(r=>`<option>${esc(r)}</option>`).join(''));
@@ -25,13 +26,30 @@ async function loadNodes() {
 
 function updateHistoryButtons(){const back=$('#backBtn'),forward=$('#forwardBtn'),reload=$('#reloadBtn');if(back)back.disabled=historyIndex<=0;if(forward)forward.disabled=historyIndex<0||historyIndex>=history.length-1;if(reload)reload.disabled=!session||historyIndex<0;}
 function frameUrl(url){return `/api/preview/${encodeURIComponent(session.sessionId)}?url=${encodeURIComponent(url)}`;}
-function navigate(url,{push=true}={}){if(!session)return;const input=$('#urlInput');if(input)input.value=url;if(push){history=history.slice(0,historyIndex+1);history.push(url);historyIndex=history.length-1;}setText('#frameStatus','Loading through proxy…');const frame=$('#previewFrame');if(frame)frame.src=frameUrl(url);updateHistoryButtons();}
+function navigate(url,{push=true}={}){
+  if(!session)return;
+  const input=$('#urlInput');
+  if(input)input.value=url;
+  if(push){history=history.slice(0,historyIndex+1);history.push(url);historyIndex=history.length-1;}
+  setText('#frameStatus','Loading through proxy…');
+  const frame=$('#previewFrame');
+  if(frame){
+    // srcdoc overrides src in browsers. Remove the placeholder before the first real navigation.
+    frame.removeAttribute('srcdoc');
+    frame.src=frameUrl(url);
+  }
+  if(frameWatchdog)clearTimeout(frameWatchdog);
+  frameWatchdog=setTimeout(()=>{
+    setText('#frameStatus','Proxy is taking too long — try another node or use Auto / best healthy node.');
+  },15000);
+  updateHistoryButtons();
+}
 
 async function createSession(){
   const body={url:value('#urlInput'),region:value('#regionSelect')||undefined,country:value('#countrySelect')||undefined,protocol:value('#protocolSelect')||undefined,nodeRef:value('#nodeSelect')||undefined};
   const res=await fetch('/api/preview-session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);
   session=data;history=[];historyIndex=-1;const n=data.node||{};
-  setHtml('#routeInfo',`${esc(countryLabel(n.country))} · ${esc(n.region)} · <span class="font-mono">${esc(n.protocol)}</span> · ${esc(n.city||'Unknown')} · ${n.latencyMs??'—'} ms`);
+  setHtml('#routeInfo',`${esc(countryLabel(n.country))} · ${esc(n.region)} · <span class="font-mono">${esc(n.protocol)}</span> · ${esc(n.city||'Unknown')} · ${n.latencyMs??'—'} ms${Number(n.latencyMs||0)>10000?' · <span class="text-amber-300">very slow node</span>':''}`);
   navigate(data.url,{push:true});
 }
 
@@ -41,7 +59,7 @@ $('#urlInput')?.addEventListener('keydown',event=>{if(event.key==='Enter')$('#go
 $('#backBtn')?.addEventListener('click',()=>{if(historyIndex>0){historyIndex--;navigate(history[historyIndex],{push:false});}});
 $('#forwardBtn')?.addEventListener('click',()=>{if(historyIndex<history.length-1){historyIndex++;navigate(history[historyIndex],{push:false});}});
 $('#reloadBtn')?.addEventListener('click',()=>{if(historyIndex>=0)navigate(history[historyIndex],{push:false});});
-$('#previewFrame')?.addEventListener('load',()=>{setText('#frameStatus',session?`Proxied preview active · session expires ${new Date(session.expiresAt).toLocaleTimeString()}`:'Proxy preview');});
+$('#previewFrame')?.addEventListener('load',()=>{if(frameWatchdog){clearTimeout(frameWatchdog);frameWatchdog=null;}setText('#frameStatus',session?`Proxied preview active · session expires ${new Date(session.expiresAt).toLocaleTimeString()}`:'Proxy preview');});
 window.addEventListener('message',event=>{const frame=$('#previewFrame');if(!frame||event.source!==frame.contentWindow)return;if(event.data?.type==='nekoroute-preview-nav'&&typeof event.data.url==='string')navigate(event.data.url,{push:true});});
 
 async function init(){const statsRes=await fetch('/api/stats');stats=await statsRes.json();fillFilters();await loadNodes();updateHistoryButtons();}

@@ -1,4 +1,4 @@
-# NekoRoute v0.4
+# NekoRoute v0.4.1
 
 NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a browser-like proxied preview, and scans public websites using local heuristics plus optional threat-intelligence providers.
 
@@ -55,11 +55,12 @@ Nodes are never deleted simply because they go offline. Their status/history rem
 
 ## Public API v1
 
-API discovery:
+API documentation and discovery:
 
 ```text
-GET /api/v1
-GET /api/openapi.json
+GET /api/docs          # human-readable docs page
+GET /api/v1            # discovery JSON
+GET /api/openapi.json  # raw OpenAPI 3.1 JSON
 ```
 
 Useful endpoints:
@@ -110,6 +111,7 @@ http://SERVER-IP:3210/
 http://SERVER-IP:3210/tester
 http://SERVER-IP:3210/preview
 http://SERVER-IP:3210/scanner
+http://SERVER-IP:3210/api/docs
 ```
 
 ## Optional ClamAV
@@ -149,6 +151,7 @@ THREAT_FEED_REFRESH_MS=43200000
 THREAT_FEED_CACHE_PATH=/app/data/openphish-cache.json
 
 EXPOSE_NODE_ADDRESSES=false
+PREVIEW_TIMEOUT_MS=45000
 ```
 
 `ADMIN_TOKEN` is maintenance-only and protects forced refresh/sweep endpoints. Normal visitor tools do not require it.
