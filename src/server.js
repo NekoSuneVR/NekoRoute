@@ -83,7 +83,7 @@ const nodesV1Handler=(req,res)=>{const rows=pool.list(filtersFromQuery(req));con
 const regionsHandler=(_req,res)=>{const by=pool.stats().byRegion||{};res.json(Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([region,count])=>({region,count})));};
 const countriesHandler=(req,res)=>{const by=pool.stats().byCountry||{};const wanted=req.query.region?String(req.query.region):null;const rows=Object.entries(by).map(([code,count])=>{const c=normalizeCountry(code);return{code:c,name:countryName(c),region:regionForCountry(c),count};}).filter(x=>!wanted||x.region===wanted).sort((a,b)=>a.name.localeCompare(b.name));res.json(rows);};
 
-app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.6',nodes:pool.nodes.size}));
+app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.7',nodes:pool.nodes.size}));
 app.get(['/api/stats','/api/v1/stats'],statsHandler);
 app.get(['/api/config','/api/v1/config'],configHandler);
 app.get(['/api/proxies','/api/v1/proxies'],proxiesHandler);
@@ -92,12 +92,12 @@ app.get('/api/v1/regions',regionsHandler);
 app.get('/api/v1/countries',countriesHandler);
 app.get('/api/v1/threat-intel',(_req,res)=>res.json(threatIntelStatus()));
 app.get('/api/v1',(_req,res)=>res.json({
-  service:'NekoRoute',version:'0.5.6',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
+  service:'NekoRoute',version:'0.5.7',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
     health:'GET /api/v1/health',stats:'GET /api/v1/stats',regions:'GET /api/v1/regions',countries:'GET /api/v1/countries?region=Europe',nodes:'GET /api/v1/nodes?status=online&country=FR',
     test:'POST /api/v1/test',matrix:'POST /api/v1/test-matrix',scan:'POST /api/v1/scan',previewSession:'POST /api/v1/preview/session',previewResources:'GET /api/v1/preview/session/:id/resources',browserTicket:'POST /api/v1/browser-ticket',threatIntel:'GET /api/v1/threat-intel'
   }
 }));
-app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.6',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and sandboxed interactive preview sessions.'},paths:{
+app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.7',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and sandboxed interactive preview sessions.'},paths:{
   '/api/v1/health':{get:{summary:'Service health'}},'/api/v1/stats':{get:{summary:'Proxy pool statistics'}},'/api/v1/regions':{get:{summary:'Region counts'}},'/api/v1/countries':{get:{summary:'Country names and counts'}},'/api/v1/nodes':{get:{summary:'Filtered public node metadata'}},
   '/api/v1/test':{post:{summary:'Test one URL through a selected/best route'}},'/api/v1/test-matrix':{post:{summary:'Compare one URL across multiple routes'}},'/api/v1/scan':{post:{summary:'Defensive website scan through a proxy'}},'/api/v1/preview/session':{post:{summary:'Create a sandboxed interactive preview session'}},'/api/v1/preview/session/{id}/resources':{get:{summary:'List page-linked resources discovered in an active preview session'}},'/api/v1/browser-ticket':{post:{summary:'Create a one-time ticket for the optional local Firefox Bridge extension'}},'/api/v1/browser-ticket/{ticket}':{get:{summary:'Consume a one-time Firefox Bridge ticket'}}
 }}));
@@ -363,8 +363,24 @@ app.get('/api/v1/preview/session/:id/resources',rateLimit(),(req,res)=>{
 });
 
 app.get('/api/preview/:id',async(req,res)=>{
-  const s=getSession(String(req.params.id));if(!s)return res.status(410).type('html').send(errorHtml('Preview session expired.'));
-  const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).type('html').send(errorHtml('Selected proxy is unavailable.'));
+  // Important: iframe Preview errors intentionally return HTTP 200 to the outer
+  // reverse proxy/CDN. Cloudflare replaces origin 5xx responses with its own
+  // Bad Gateway page, which hides NekoRoute's useful proxy/upstream diagnostics.
+  // The real upstream/proxy status is carried in X-NekoRoute-* headers and the
+  // HTML postMessage payload instead. API tester endpoints still return their
+  // normal HTTP status codes.
+  const sendFrameError=(input,{kind='preview'}={})=>{
+    const upstream=Number(input?.statusCode||0);
+    const headers={
+      'cache-control':'no-store',
+      'content-type':'text/html; charset=utf-8',
+      'x-nekoroute-preview-error':kind,
+      ...(upstream?{'x-nekoroute-upstream-status':String(upstream)}:{})
+    };
+    return res.status(200).set(headers).send(previewErrorHtml(input));
+  };
+  const s=getSession(String(req.params.id));if(!s)return sendFrameError({message:'Preview session expired.'},{kind:'session-expired'});
+  const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return sendFrameError({message:'Selected proxy is unavailable.',node},{kind:'proxy-unavailable'});
   try{
     const target=await validatePublicTarget(String(req.query.url||''));
     s.currentPage=target.toString();
@@ -374,11 +390,11 @@ app.get('/api/preview/:id',async(req,res)=>{
     if(r.statusCode>=400){
       const textual=type.includes('text/')||type.includes('json')||type.includes('html')||type.includes('xml');
       const excerpt=textual?String(r.body||'').replace(/\s+/g,' ').trim().slice(0,1800):'';
-      return res.status(r.statusCode).type('html').send(previewErrorHtml({
+      return sendFrameError({
         statusCode:r.statusCode,
         message:`The upstream website returned HTTP ${r.statusCode} through this proxy.`,
         node,target:target.toString(),bodyExcerpt:excerpt
-      }));
+      },{kind:'upstream-http'});
     }
     if(!type.includes('html')){
       const allowed=type.startsWith('audio/')||type.startsWith('video/')||type.startsWith('image/')||type.includes('application/pdf');
@@ -386,7 +402,7 @@ app.get('/api/preview/:id',async(req,res)=>{
       return res.status(415).type('html').send(errorHtml(`Preview cannot render ${type}.`));
     }
     res.status(r.statusCode||200).set({'cache-control':'no-store','content-type':'text/html; charset=utf-8','cross-origin-resource-policy':'cross-origin'}).send(rewriteHtml(r.body,target.toString(),req.params.id,s));
-  }catch(e){res.status(502).type('html').send(previewErrorHtml({message:e.message||String(e),node,target:s.currentPage||String(req.query.url||'')}));}
+  }catch(e){return sendFrameError({message:e.message||String(e),node,target:s.currentPage||String(req.query.url||'')},{kind:'proxy-transport'});}
 });
 
 const previewCors=(req,res)=>{

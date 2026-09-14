@@ -1,4 +1,4 @@
-import { esc, flag, countryName, countryLabel, regions } from '/common.js?v=0506-20260914T1628';
+import { esc, flag, countryName, countryLabel, regions } from '/common.js?v=0507-20260914T1552';
 
 const $ = s => document.querySelector(s);
 const state = { stats: null, region: '', country: '', protocol: '', status: 'online', page:1, pageSize:50, pages:1, total:0 };
