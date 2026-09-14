@@ -1,6 +1,6 @@
-# NekoRoute v0.5.3
+# NekoRoute v0.5.4
 
-NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a safe server-side preview, and can hand a selected route to an optional **local Firefox Bridge** for full browser compatibility and direct-to-PC downloads.
+NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a sandboxed interactive server-side preview, and can hand a selected route to an optional **local Firefox Bridge** for full browser compatibility and direct-to-PC downloads.
 
 > **Responsible-use notice:** Users are responsible for complying with applicable law and website terms. Public proxies are third-party infrastructure. NekoRoute does not guarantee anonymity, privacy, safety or availability. Do not send passwords, private tokens, payment data or other sensitive traffic through random public proxies.
 
@@ -19,23 +19,24 @@ Compare one public HTTP/HTTPS URL across multiple healthy exits. Results include
 
 The specific-node selector is paginated (50 nodes per page) instead of loading hundreds of `<option>` rows at once.
 
-### Safe Proxy Preview `/preview`
+### Sandboxed Interactive Proxy Preview `/preview`
 
-The server-side preview remains intentionally safer than a transparent browser:
+The embedded preview now keeps the iframe sandbox but loads the target page's CSS and JavaScript through the selected proxy session:
 
 - Back / forward / reload and URL bar.
 - Proxied page-to-page navigation.
+- External stylesheets, fonts, images, scripts, module/chunk imports and dynamically-added page assets.
+- Inline JavaScript and event handlers execute inside the sandboxed iframe.
+- Common `fetch()` and XHR **GET/HEAD** requests are routed through the selected proxy session.
 - Simple `GET`/search forms.
-- Images, CSS, fonts and discovered audio/video/PDF resources through the same selected proxy.
-- Tokenised page-linked downloads.
-- Client-rendered pages receive an extracted fallback instead of a silent blank page.
-- Remote third-party JavaScript, cookies, authentication, POST forms, service workers and WebSockets remain disabled.
+- Audio/video/PDF resources and tokenised page-linked downloads.
+- The iframe intentionally omits `allow-same-origin`, keeping the remote page isolated from the NekoRoute dashboard origin.
 
-Use **Open in real Firefox** when a site requires JavaScript or normal browser behaviour.
+Cookies/authenticated browser storage, write/POST requests, service workers and WebSockets remain disabled in embedded mode. Use **Open in real Firefox** when a site requires those full browser features.
 
 ### Real Firefox Bridge `/browser`
 
-This is the v0.5 feature for sites that cannot work in the safe preview.
+This is the v0.5 feature for sites that needs more browser capabilities than the sandboxed preview.
 
 The optional Firefox extension:
 
@@ -78,7 +79,7 @@ The scanner fetches a public website through the selected proxy without executin
 
 ## Public proxy providers
 
-NekoRoute v0.5.3 merges and de-duplicates multiple independent public sources:
+NekoRoute v0.5.4 merges and de-duplicates multiple independent public sources:
 
 - **Proxifly** — metadata-rich HTTP/HTTPS/SOCKS lists.
 - **ProxyScrape** — metadata-rich HTTP/HTTPS/SOCKS lists.
@@ -152,6 +153,13 @@ GET /api/proxies?status=online&limit=50&offset=100
 ```
 
 It also returns `X-Total-Count`, `X-Offset` and `X-Limit` headers.
+
+
+## Interactive sandboxed Proxy Preview
+
+The `/preview` tool now preserves and proxies the target page's external CSS and JavaScript instead of stripping scripts. The iframe remains sandboxed **without `allow-same-origin`**, while NekoRoute rewrites stylesheet/script/media URLs through the selected proxy session. A small bootstrap layer routes common `fetch()`/XHR GET/HEAD calls and dynamically-added script/image/style/media URLs through the same session.
+
+The embedded mode still intentionally blocks cookies/authenticated browser storage, write/POST fetches/forms, service workers and WebSockets. Use `/browser` + the Firefox Bridge for sites that require a complete browser session.
 
 ## Public API v1
 

@@ -83,7 +83,7 @@ const nodesV1Handler=(req,res)=>{const rows=pool.list(filtersFromQuery(req));con
 const regionsHandler=(_req,res)=>{const by=pool.stats().byRegion||{};res.json(Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([region,count])=>({region,count})));};
 const countriesHandler=(req,res)=>{const by=pool.stats().byCountry||{};const wanted=req.query.region?String(req.query.region):null;const rows=Object.entries(by).map(([code,count])=>{const c=normalizeCountry(code);return{code:c,name:countryName(c),region:regionForCountry(c),count};}).filter(x=>!wanted||x.region===wanted).sort((a,b)=>a.name.localeCompare(b.name));res.json(rows);};
 
-app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.3',nodes:pool.nodes.size}));
+app.get(['/api/health','/api/v1/health'],(_req,res)=>res.json({ok:true,service:'NekoRoute',version:'0.5.4',nodes:pool.nodes.size}));
 app.get(['/api/stats','/api/v1/stats'],statsHandler);
 app.get(['/api/config','/api/v1/config'],configHandler);
 app.get(['/api/proxies','/api/v1/proxies'],proxiesHandler);
@@ -92,14 +92,14 @@ app.get('/api/v1/regions',regionsHandler);
 app.get('/api/v1/countries',countriesHandler);
 app.get('/api/v1/threat-intel',(_req,res)=>res.json(threatIntelStatus()));
 app.get('/api/v1',(_req,res)=>res.json({
-  service:'NekoRoute',version:'0.5.3',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
+  service:'NekoRoute',version:'0.5.4',docs:'/api/docs',openapi:'/api/openapi.json',endpoints:{
     health:'GET /api/v1/health',stats:'GET /api/v1/stats',regions:'GET /api/v1/regions',countries:'GET /api/v1/countries?region=Europe',nodes:'GET /api/v1/nodes?status=online&country=FR',
     test:'POST /api/v1/test',matrix:'POST /api/v1/test-matrix',scan:'POST /api/v1/scan',previewSession:'POST /api/v1/preview/session',previewResources:'GET /api/v1/preview/session/:id/resources',browserTicket:'POST /api/v1/browser-ticket',threatIntel:'GET /api/v1/threat-intel'
   }
 }));
-app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.3',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and safe preview sessions.'},paths:{
+app.get('/api/openapi.json',(_req,res)=>res.json({openapi:'3.1.0',info:{title:'NekoRoute Public API',version:'0.5.4',description:'Regional availability diagnostics, defensive scanning, proxy-pool metadata and sandboxed interactive preview sessions.'},paths:{
   '/api/v1/health':{get:{summary:'Service health'}},'/api/v1/stats':{get:{summary:'Proxy pool statistics'}},'/api/v1/regions':{get:{summary:'Region counts'}},'/api/v1/countries':{get:{summary:'Country names and counts'}},'/api/v1/nodes':{get:{summary:'Filtered public node metadata'}},
-  '/api/v1/test':{post:{summary:'Test one URL through a selected/best route'}},'/api/v1/test-matrix':{post:{summary:'Compare one URL across multiple routes'}},'/api/v1/scan':{post:{summary:'Defensive website scan through a proxy'}},'/api/v1/preview/session':{post:{summary:'Create a safe preview session'}},'/api/v1/preview/session/{id}/resources':{get:{summary:'List page-linked resources discovered in an active preview session'}},'/api/v1/browser-ticket':{post:{summary:'Create a one-time ticket for the optional local Firefox Bridge extension'}},'/api/v1/browser-ticket/{ticket}':{get:{summary:'Consume a one-time Firefox Bridge ticket'}}
+  '/api/v1/test':{post:{summary:'Test one URL through a selected/best route'}},'/api/v1/test-matrix':{post:{summary:'Compare one URL across multiple routes'}},'/api/v1/scan':{post:{summary:'Defensive website scan through a proxy'}},'/api/v1/preview/session':{post:{summary:'Create a sandboxed interactive preview session'}},'/api/v1/preview/session/{id}/resources':{get:{summary:'List page-linked resources discovered in an active preview session'}},'/api/v1/browser-ticket':{post:{summary:'Create a one-time ticket for the optional local Firefox Bridge extension'}},'/api/v1/browser-ticket/{ticket}':{get:{summary:'Consume a one-time Firefox Bridge ticket'}}
 }}));
 
 app.post('/api/admin/refresh',requireAdmin,async(_req,res,next)=>{try{res.json(await pool.refreshSources());}catch(e){next(e);}});
@@ -161,26 +161,72 @@ function resourcePanel(hints,id,session,base,full=false){
   if(full)return `<section data-neko-fallback style="all:initial;display:block!important;box-sizing:border-box!important;max-width:1100px!important;margin:24px auto!important;padding:20px!important;background:#090d0b!important;color:#e4e4e7!important;border:1px solid #14532d!important;border-radius:16px!important;font-family:system-ui!important">${body||'<p style="color:#a1a1aa">The remote page contains no server-rendered content after scripts were disabled.</p>'}</section>`;
   return `<details data-neko-resources style="all:initial;display:block!important;box-sizing:border-box!important;margin:16px!important;padding:12px 14px!important;background:#090d0b!important;color:#e4e4e7!important;border:1px solid #14532d!important;border-radius:12px!important;font-family:system-ui!important"><summary style="cursor:pointer;color:#a7f3d0;font:700 13px system-ui">NekoRoute detected resources${hints.media.length?` · ${hints.media.length} media/download`:''}</summary>${body}</details>`;
 }
+function runtimeUrl(id,url){return `/api/preview-runtime/${encodeURIComponent(id)}?url=${encodeURIComponent(url)}`;}
+function rewriteJavascript(js,base,id,session){
+  let out=String(js||'');
+  const map=raw=>{const u=absolute(raw,base);return u?registerResource(id,session,u,'script',base):raw;};
+  // Rewrite common ES module specifiers so module/chunk imports stay inside the selected proxy session.
+  out=out.replace(/(\b(?:import|export)\s+(?:[^'"\n;]*?\s+from\s*)?)(['"])([^'"\n]+)\2/g,(m,p,q,v)=>`${p}${q}${map(v)}${q}`);
+  out=out.replace(/(\bimport\s*\(\s*)(['"])([^'"\n]+)\2(\s*\))/g,(m,p,q,v,t)=>`${p}${q}${map(v)}${q}${t}`);
+  return out;
+}
+function previewBootstrap(base,id){
+  const baseJson=JSON.stringify(base),idJson=JSON.stringify(id);
+  return `(function(){\n`+
+  `const REMOTE_BASE=${baseJson},SID=${idJson};\n`+
+  `const localPreview=(v)=>{try{const u=new URL(String(v),location.href);return u.pathname.startsWith('/api/preview-')}catch{return false}};\n`+
+  `const abs=(v)=>{try{const u=new URL(String(v),REMOTE_BASE);return /^(https?:)$/.test(u.protocol)?u.href:null}catch{return null}};\n`+
+  `const runtime=(v,kind)=>{if(localPreview(v))return String(v);const u=abs(v);return u?('/api/preview-runtime/'+encodeURIComponent(SID)+'?url='+encodeURIComponent(u)+(kind?'&kind='+encodeURIComponent(kind):'')):v};\n`+
+  `const resource=(v,kind)=>runtime(v,kind||'resource');const page=(v)=>{if(localPreview(v))return String(v);const u=abs(v);return u?('/api/preview/'+encodeURIComponent(SID)+'?url='+encodeURIComponent(u)):v};\n`+
+  `window.__NEKOROUTE_REMOTE_BASE__=REMOTE_BASE;window.__NEKOROUTE_SESSION__=SID;\n`+
+  `try{const f=window.fetch.bind(window);window.fetch=function(input,init){init=init||{};let raw=typeof input==='string'||input instanceof URL?String(input):input&&input.url;let method=String(init.method||(input&&input.method)||'GET').toUpperCase();if(!raw||raw.startsWith('/api/preview-'))return f(input,init);if(method!=='GET'&&method!=='HEAD')return Promise.reject(new TypeError('NekoRoute sandbox blocks write fetch methods'));const next=Object.assign({},init,{method,credentials:'omit'});delete next.mode;return f(runtime(raw,'fetch'),next)}}catch(_){};\n`+
+  `try{const o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){const args=[].slice.call(arguments);const m=String(method||'GET').toUpperCase();if(m==='GET'||m==='HEAD')args[1]=runtime(url,'fetch');else args[1]='/api/preview-runtime-blocked/'+encodeURIComponent(SID);return o.apply(this,args)}}catch(_){};\n`+
+  `try{const orig=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){const n=String(name).toLowerCase(),tag=this.tagName;if(n==='src'&&tag==='IFRAME')value=page(value);else if(n==='src'&&tag==='SCRIPT')value=resource(value,'script');else if(n==='href'&&tag==='LINK')value=resource(value,'style');else if(n==='src'&&/^(IMG|SOURCE|VIDEO|AUDIO|TRACK)$/.test(tag))value=resource(value,'resource');return orig.call(this,name,value)}}catch(_){};\n`+
+  `const patch=(proto,key,kind)=>{try{const d=Object.getOwnPropertyDescriptor(proto,key);if(!d||!d.set||!d.get)return;Object.defineProperty(proto,key,{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){return d.set.call(this,resource(v,kind))}})}catch(_){}};\n`+
+  `patch(HTMLScriptElement.prototype,'src','script');patch(HTMLLinkElement.prototype,'href','style');patch(HTMLImageElement.prototype,'src','resource');if(window.HTMLSourceElement)patch(HTMLSourceElement.prototype,'src','resource');if(window.HTMLMediaElement)patch(HTMLMediaElement.prototype,'src','resource');try{const d=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');if(d&&d.set&&d.get)Object.defineProperty(HTMLIFrameElement.prototype,'src',{configurable:d.configurable,enumerable:d.enumerable,get:d.get,set:function(v){return d.set.call(this,page(v))}})}catch(_){};\n`+
+  `try{const fix=(root)=>{if(!root||root.nodeType!==1)return;const all=[root].concat(Array.from(root.querySelectorAll?root.querySelectorAll('script[src],link[href],img[src],source[src],video[src],audio[src],track[src],iframe[src]'):[]));for(const el of all){const t=el.tagName;if(t==='IFRAME'&&el.getAttribute('src'))el.setAttribute('src',page(el.getAttribute('src')));else if(t==='SCRIPT'&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'script'));else if(t==='LINK'&&el.getAttribute('href'))el.setAttribute('href',resource(el.getAttribute('href'),'style'));else if(el.getAttribute&&el.getAttribute('src'))el.setAttribute('src',resource(el.getAttribute('src'),'resource'));}};new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)fix(n)}).observe(document.documentElement,{childList:true,subtree:true})}catch(_){};\n`+
+  `try{const makeStore=()=>{const m=new Map();return{get length(){return m.size},key:i=>Array.from(m.keys())[i]??null,getItem:k=>m.has(String(k))?m.get(String(k)):null,setItem:(k,v)=>m.set(String(k),String(v)),removeItem:k=>m.delete(String(k)),clear:()=>m.clear()}};try{void window.localStorage}catch{Object.defineProperty(window,'localStorage',{value:makeStore()})}try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{value:makeStore()})}try{Object.defineProperty(Document.prototype,'cookie',{configurable:true,get:function(){return ''},set:function(){return true}})}catch(_){}}catch(_){};\n`+
+  `try{const W=window.WebSocket;window.WebSocket=function(){throw new DOMException('WebSocket disabled in NekoRoute sandbox','SecurityError')};window.WebSocket.prototype=W&&W.prototype}catch(_){};\n`+
+  `})();`;
+}
 function rewriteHtml(html,base,id,session){
   const $=cheerio.load(html,{decodeEntities:false});
   const hints=collectPageHints($,html,base);
-  $('script,iframe,frame,object,embed,portal').remove();$('base').remove();
+  $('object,embed,portal').remove();$('base').remove();
   $('meta[http-equiv]').each((_i,e)=>{const v=String($(e).attr('http-equiv')||'').toLowerCase();if(v==='content-security-policy'||v==='refresh')$(e).remove();});
-  $('*').each((_i,e)=>{for(const n of Object.keys(e.attribs||{}))if(/^on/i.test(n))$(e).removeAttr(n);});
-  $('a[href]').each((_i,e)=>{const a=$(e),raw=a.attr('href');if(!raw||raw.startsWith('#'))return;const u=absolute(raw,base);if(!u){a.attr('href','#').attr('data-neko-blocked','true');return;}const explicit=a.is('[download]')||mediaExt.test(u);if(explicit){a.attr('href',registerResource(id,session,u,'download',base)+'?download=1').attr('rel','nofollow noopener');}else{a.attr('href','#').attr('data-neko-url',u);}});
-  for(const[sel,attr,kind]of[['img','src','resource'],['source','src','media'],['video','src','media'],['video','poster','resource'],['audio','src','media'],['track','src','media'],['link[rel="stylesheet"]','href','style'],['link[rel="icon"]','href','resource']])$(sel).each((_i,e)=>{const u=absolute($(e).attr(attr),base);if(u)$(e).attr(attr,registerResource(id,session,u,kind,base)).removeAttr('integrity').removeAttr('crossorigin');});
+
+  // Proxy original scripts instead of stripping them. Inline scripts and event handlers stay enabled,
+  // but the outer iframe remains sandboxed without allow-same-origin.
+  $('script[src]').each((_i,e)=>{const el=$(e),u=absolute(el.attr('src'),base);if(u)el.attr('src',registerResource(id,session,u,'script',base)).removeAttr('integrity').removeAttr('crossorigin').removeAttr('nonce');});
+  $('script:not([src])').each((_i,e)=>$(e).removeAttr('nonce'));
+
+  $('a[href]').each((_i,e)=>{const a=$(e),raw=a.attr('href');if(!raw||raw.startsWith('#'))return;const u=absolute(raw,base);if(!u){a.attr('href','#').attr('data-neko-blocked','true');return;}const explicit=a.is('[download]')||mediaExt.test(u);if(explicit){a.attr('href',registerResource(id,session,u,'download',base)+'?download=1').attr('rel','nofollow noopener');}else{a.attr('href',pageUrl(id,u)).attr('data-neko-url',u).removeAttr('target');}});
+
+  for(const[sel,attr,kind]of[
+    ['img','src','resource'],['source','src','media'],['video','src','media'],['video','poster','resource'],['audio','src','media'],['track','src','media'],
+    ['link[href]','href','style'],['iframe[src]','src','page']
+  ])$(sel).each((_i,e)=>{const el=$(e),u=absolute(el.attr(attr),base);if(!u)return;if(kind==='page')el.attr(attr,pageUrl(id,u));else el.attr(attr,registerResource(id,session,u,kind,base));el.removeAttr('integrity').removeAttr('crossorigin').removeAttr('nonce');});
+
   $('img[srcset],source[srcset]').each((_i,e)=>$(e).attr('srcset',rewriteSrcset($(e).attr('srcset'),base,id,session)));
   $('[style]').each((_i,e)=>$(e).attr('style',rewriteCss($(e).attr('style'),base,id,session)));$('style').each((_i,e)=>$(e).text(rewriteCss($(e).html()||'',base,id,session)));
-  $('form').each((_i,e)=>{const form=$(e);const method=String(form.attr('method')||'get').toLowerCase();const action=absolute(form.attr('action')||base,base);if(method==='get'&&action&&!form.find('input[type="password"],input[type="file"]').length){form.attr('data-neko-get-form','true').attr('data-neko-action',action).attr('action','#').attr('method','get');}else{form.attr('data-neko-form-disabled','true');form.find('input,textarea,select,button').attr('disabled','disabled');}});
-  const meaningfulClone=$('body').clone();meaningfulClone.find('style,template').remove();const meaningfulText=String(meaningfulClone.text()||'').replace(/\s+/g,' ').trim();
-  const meaningfulNodes=$('body a[data-neko-url],body a[href^="/api/preview-resource"],body img[src],body audio[src],body video[src],body form[data-neko-get-form]').length;
-  const needsFallback=meaningfulText.length<80&&meaningfulNodes<3;
-  $('body').prepend(`<div style="position:sticky;top:0;z-index:2147483647;padding:8px 12px;background:#07110b;color:#a7f3d0;border-bottom:1px solid #14532d;font:12px system-ui">NekoRoute proxied preview · safe static rendering · page-linked downloads enabled${needsFallback?' · client-rendered page fallback active':''}</div>`);
-  if(needsFallback)$('body').append(resourcePanel(hints,id,session,base,true));
-  else if(hints.media.length)$('body').append(resourcePanel(hints,id,session,base,false));
-  $('body').append(`<script>(function(){document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-neko-url]');if(!a)return;e.preventDefault();parent.postMessage({type:'nekoroute-preview-nav',url:a.getAttribute('data-neko-url')},'*')},true);document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.matches||!f.matches('form[data-neko-get-form]')){e.preventDefault();return;}e.preventDefault();var action=f.getAttribute('data-neko-action');try{var u=new URL(action);var fd=new FormData(f);for(var pair of fd.entries())u.searchParams.append(pair[0],pair[1]);parent.postMessage({type:'nekoroute-preview-nav',url:u.toString()},'*')}catch(_){}},true)})()</script>`);
+
+  // GET/search forms remain usable; write forms stay disabled in embedded preview.
+  $('form').each((_i,e)=>{const form=$(e);const method=String(form.attr('method')||'get').toLowerCase();const action=absolute(form.attr('action')||base,base);if(method==='get'&&action&&!form.find('input[type="password"],input[type="file"]').length){form.attr('data-neko-get-form','true').attr('data-neko-action',action).attr('action','#').attr('method','get');}else{form.attr('data-neko-form-disabled','true');form.find('input[type="password"],input[type="file"],button[type="submit"],input[type="submit"]').attr('disabled','disabled');}});
+
+  // Bootstrap must run before the site's scripts. It keeps fetch/XHR and dynamically-added assets
+  // inside this proxy session while preserving the iframe's opaque sandbox origin.
+  const bootstrap=`<script data-nekoroute-bootstrap>${previewBootstrap(base,id)}</script>`;
+  if($('head').length)$('head').prepend(bootstrap);else $.root().prepend(`<head>${bootstrap}</head>`);
+
+  // Keep a small status bar, without replacing the site's own page layout.
+  $('body').prepend(`<div data-nekoroute-bar style="position:sticky;top:0;z-index:2147483647;padding:7px 11px;background:#07110b;color:#a7f3d0;border-bottom:1px solid #14532d;font:12px system-ui">NekoRoute proxied interactive preview · CSS + JavaScript enabled in sandbox · downloads proxied</div>`);
+  if(hints.media.length)$('body').append(resourcePanel(hints,id,session,base,false));
+
+  // Notify the outer UI about normal navigation, but do not steal clicks already handled by site JS.
+  $('body').append(`<script data-nekoroute-nav>(function(){document.addEventListener('click',function(e){if(e.defaultPrevented)return;var a=e.target.closest&&e.target.closest('a[data-neko-url]');if(!a)return;parent.postMessage({type:'nekoroute-preview-nav',url:a.getAttribute('data-neko-url')},'*')},false);document.addEventListener('submit',function(e){var f=e.target;if(!f||!f.matches||!f.matches('form[data-neko-get-form]'))return;e.preventDefault();var action=f.getAttribute('data-neko-action');try{var u=new URL(action);var fd=new FormData(f);for(var pair of fd.entries())u.searchParams.append(pair[0],pair[1]);parent.postMessage({type:'nekoroute-preview-nav',url:u.toString()},'*')}catch(_){}},false)})()</script>`);
   return $.html();
 }
+
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const errorHtml=m=>`<!doctype html><html><body style="background:#050807;color:#e4e4e7;font:15px system-ui"><div style="max-width:760px;margin:64px auto;padding:24px;border:1px solid #27272a;border-radius:20px"><h1 style="color:#34d399">Preview blocked</h1><p>${escapeHtml(m||'Preview failed')}</p></div></body></html>`;
 function nonHtmlPreview(id,session,url,type){const src=registerResource(id,session,url,'download');const isAudio=type.startsWith('audio/'),isVideo=type.startsWith('video/'),isImage=type.startsWith('image/'),isPdf=type.includes('pdf');const player=isAudio?`<audio controls style="width:100%" src="${src}"></audio>`:isVideo?`<video controls style="max-width:100%;max-height:70vh" src="${src}"></video>`:isImage?`<img style="max-width:100%;max-height:75vh" src="${src}"/>`:isPdf?`<iframe style="width:100%;height:70vh;border:0" src="${src}"></iframe>`:'';return`<!doctype html><html><body style="background:#050807;color:#e4e4e7;font:15px system-ui"><div style="max-width:1000px;margin:30px auto;padding:24px"><h2 style="color:#34d399">Proxied resource</h2><p>${escapeHtml(type)}</p>${player}<p><a style="color:#34d399" href="${src}?download=1">Download this page-linked resource through the selected proxy</a></p></div></body></html>`;}
@@ -192,11 +238,114 @@ const browserTicketHandler=async(req,res,next)=>{try{const target=await validate
 app.post('/api/v1/browser-ticket',rateLimit(),browserTicketHandler);
 app.get('/api/v1/browser-ticket/:ticket',rateLimit(),(req,res)=>{const key=String(req.params.ticket),ticket=browserTickets.get(key);if(!ticket||ticket.expiresAt<=Date.now()){browserTickets.delete(key);return res.status(410).json({error:'Browser ticket expired or already used'});}const node=pool.nodes.get(ticket.nodeId);if(!node||node.status!=='online'){browserTickets.delete(key);return res.status(503).json({error:'Selected proxy is no longer online'});}browserTickets.delete(key);const type=node.protocol==='socks5'?'socks':node.protocol;res.set('cache-control','no-store').json({ok:true,target:ticket.target,proxy:{type,host:node.ip,port:node.port,proxyDNS:type==='socks'||type==='socks4',failoverTimeout:8},node:safeNode(node)});});
 
-const previewSessionHandler=async(req,res,next)=>{try{const target=await validatePublicTarget(req.body?.url),requested=req.body?.nodeRef?findNodeByRef(String(req.body.nodeRef)):null,node=requested||pool.select(selector(req.body));if(!node||node.status!=='online')return res.status(503).json({error:'No healthy proxy matches that selection'});const id=randomUUID(),expiresAt=Date.now()+config.previewSessionTtlMs;sessions.set(id,{nodeId:node.id,expiresAt,resources:new Map()});res.json({ok:true,sessionId:id,expiresAt:new Date(expiresAt).toISOString(),url:target.toString(),frameUrl:pageUrl(id,target.toString()),node:safeNode(node),capabilities:{navigation:true,getForms:true,pageLinkedMedia:true,pageLinkedDownloads:true,remoteScripts:false,cookies:false,postForms:false}});}catch(e){next(e);}};
+const previewSessionHandler=async(req,res,next)=>{
+  try{
+    const target=await validatePublicTarget(req.body?.url);
+    const requested=req.body?.nodeRef?findNodeByRef(String(req.body.nodeRef)):null;
+    const node=requested||pool.select(selector(req.body));
+    if(!node||node.status!=='online')return res.status(503).json({error:'No healthy proxy matches that selection'});
+    const id=randomUUID(),expiresAt=Date.now()+config.previewSessionTtlMs;
+    sessions.set(id,{nodeId:node.id,expiresAt,resources:new Map()});
+    res.json({
+      ok:true,sessionId:id,expiresAt:new Date(expiresAt).toISOString(),url:target.toString(),frameUrl:pageUrl(id,target.toString()),node:safeNode(node),
+      capabilities:{navigation:true,getForms:true,pageLinkedMedia:true,pageLinkedDownloads:true,remoteScripts:true,sandboxedScripts:true,runtimeGetFetch:true,cookies:false,postForms:false,webSockets:false}
+    });
+  }catch(e){next(e);}
+};
 app.post(['/api/preview-session','/api/v1/preview/session'],rateLimit(),previewSessionHandler);
-app.get('/api/v1/preview/session/:id/resources',rateLimit(),(req,res)=>{const s=getSession(String(req.params.id));if(!s)return res.status(410).json({error:'Preview session expired'});const rows=[...s.resources.entries()].map(([token,entry])=>({token,kind:entry.kind,url:entry.url,fetchUrl:`/api/preview-resource/${encodeURIComponent(req.params.id)}/${token}`,downloadUrl:`/api/preview-resource/${encodeURIComponent(req.params.id)}/${token}?download=1`}));res.json({sessionId:req.params.id,expiresAt:new Date(s.expiresAt).toISOString(),count:rows.length,resources:rows});});
-app.get('/api/preview/:id',async(req,res)=>{const s=getSession(String(req.params.id));if(!s)return res.status(410).type('html').send(errorHtml('Preview session expired.'));const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).type('html').send(errorHtml('Selected proxy is unavailable.'));try{const target=await validatePublicTarget(String(req.query.url||'')),r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:config.previewMaxHtmlBytes,headers:{accept:'text/html,application/xhtml+xml,audio/*,video/*,image/*,application/pdf;q=0.8,text/plain;q=0.7,*/*;q=0.2','user-agent':config.previewUserAgent,'accept-language':'en-GB,en;q=0.9'}});if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){const next=absolute(r.headers.location,target);if(next){await validatePublicTarget(next);return res.redirect(302,pageUrl(req.params.id,next));}}const type=String(r.headers['content-type']||'text/html').toLowerCase();if(!type.includes('html')){const allowed=type.startsWith('audio/')||type.startsWith('video/')||type.startsWith('image/')||type.includes('application/pdf');if(allowed)return res.status(200).type('html').send(nonHtmlPreview(req.params.id,s,target.toString(),type));return res.status(415).type('html').send(errorHtml(`Preview cannot render ${type}.`));}res.status(r.statusCode||200).set({'cache-control':'no-store','content-type':'text/html; charset=utf-8'}).send(rewriteHtml(r.body,target.toString(),req.params.id,s));}catch(e){res.status(400).type('html').send(errorHtml(e.message||e));}});
-app.get('/api/preview-resource/:id/:token',async(req,res)=>{const s=getSession(String(req.params.id));if(!s)return res.status(410).end();const entry=s.resources.get(String(req.params.token));if(!entry)return res.status(404).end();const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).end();try{const target=await validatePublicTarget(entry.url);const range=req.get('range');const r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:req.query.download==='1'?config.previewMaxDownloadBytes:config.previewMaxResourceBytes,headers:{accept:'*/*','user-agent':config.previewUserAgent,...(entry.referer?{referer:entry.referer}:{}),...(range?{range}:{})}});if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){const next=absolute(r.headers.location,target);if(next){await validatePublicTarget(next);const newUrl=registerResource(req.params.id,s,next,entry.kind,entry.referer);return res.redirect(302,newUrl+(req.query.download==='1'?'?download=1':''));}}const type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();const normalAllowed=type.startsWith('image/')||type.startsWith('font/')||type.startsWith('audio/')||type.startsWith('video/')||type.includes('text/css')||type.includes('font-woff')||type.includes('application/pdf');const downloadAllowed=entry.kind==='download'&&(normalAllowed||type.includes('application/octet-stream')||type.includes('application/force-download')||type.includes('application/download')||type.includes('application/x-download')||type.includes('binary/octet-stream'));if(!normalAllowed&&!downloadAllowed)return res.status(415).end();const headers={'cache-control':'private, max-age=120','content-type':r.headers['content-type']||'application/octet-stream'};if(r.headers['content-range'])headers['content-range']=r.headers['content-range'];if(r.headers['accept-ranges'])headers['accept-ranges']=r.headers['accept-ranges'];if(req.query.download==='1'){const remoteDisposition=String(r.headers['content-disposition']||'');const match=/filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(remoteDisposition);let filename=path.basename(target.pathname)||'download';if(match?.[1]){try{filename=decodeURIComponent(match[1].trim());}catch{filename=match[1].trim();}}headers['content-disposition']=`attachment; filename="${filename.replace(/["\\\r\n]/g,'_')}"`;}if(type.includes('text/css')){const body=rewriteCss(r.body,target.toString(),req.params.id,s);headers['content-length']=String(Buffer.byteLength(body));return res.status(r.statusCode||200).set(headers).send(body);}headers['content-length']=String(r.bodyBuffer.length);return res.status(r.statusCode||200).set(headers).send(r.bodyBuffer);}catch{return res.status(404).end();}});
+app.get('/api/v1/preview/session/:id/resources',rateLimit(),(req,res)=>{
+  const s=getSession(String(req.params.id));if(!s)return res.status(410).json({error:'Preview session expired'});
+  const rows=[...s.resources.entries()].map(([token,entry])=>({token,kind:entry.kind,url:entry.url,fetchUrl:`/api/preview-resource/${encodeURIComponent(req.params.id)}/${token}`,downloadUrl:`/api/preview-resource/${encodeURIComponent(req.params.id)}/${token}?download=1`}));
+  res.json({sessionId:req.params.id,expiresAt:new Date(s.expiresAt).toISOString(),count:rows.length,resources:rows});
+});
+
+app.get('/api/preview/:id',async(req,res)=>{
+  const s=getSession(String(req.params.id));if(!s)return res.status(410).type('html').send(errorHtml('Preview session expired.'));
+  const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).type('html').send(errorHtml('Selected proxy is unavailable.'));
+  try{
+    const target=await validatePublicTarget(String(req.query.url||''));
+    const r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:config.previewMaxHtmlBytes,headers:{accept:'text/html,application/xhtml+xml,audio/*,video/*,image/*,application/pdf;q=0.8,text/plain;q=0.7,*/*;q=0.2','user-agent':config.previewUserAgent,'accept-language':'en-GB,en;q=0.9'}});
+    if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){const next=absolute(r.headers.location,target);if(next){await validatePublicTarget(next);return res.redirect(302,pageUrl(req.params.id,next));}}
+    const type=String(r.headers['content-type']||'text/html').toLowerCase();
+    if(!type.includes('html')){
+      const allowed=type.startsWith('audio/')||type.startsWith('video/')||type.startsWith('image/')||type.includes('application/pdf');
+      if(allowed)return res.status(200).type('html').send(nonHtmlPreview(req.params.id,s,target.toString(),type));
+      return res.status(415).type('html').send(errorHtml(`Preview cannot render ${type}.`));
+    }
+    res.status(r.statusCode||200).set({'cache-control':'no-store','content-type':'text/html; charset=utf-8','cross-origin-resource-policy':'cross-origin'}).send(rewriteHtml(r.body,target.toString(),req.params.id,s));
+  }catch(e){res.status(400).type('html').send(errorHtml(e.message||e));}
+});
+
+const previewCors=(req,res)=>{
+  res.set({
+    'access-control-allow-origin':'*',
+    'access-control-allow-methods':'GET,HEAD,OPTIONS',
+    'access-control-allow-headers':req.get('access-control-request-headers')||'content-type,range,accept',
+    'access-control-expose-headers':'content-type,content-length,content-range,accept-ranges,etag,last-modified',
+    'cross-origin-resource-policy':'cross-origin',
+    'cache-control':'no-store'
+  });
+};
+app.options('/api/preview-runtime/:id',(req,res)=>{previewCors(req,res);res.status(204).end();});
+app.all('/api/preview-runtime/:id',async(req,res)=>{
+  previewCors(req,res);
+  if(!['GET','HEAD'].includes(req.method))return res.status(405).json({error:'NekoRoute embedded preview only proxies GET/HEAD script requests'});
+  const s=getSession(String(req.params.id));if(!s)return res.status(410).json({error:'Preview session expired'});
+  const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).json({error:'Selected proxy is unavailable'});
+  try{
+    let target=await validatePublicTarget(String(req.query.url||''));
+    let r,redirects=0;
+    while(true){
+      const range=req.get('range');
+      r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:config.previewMaxResourceBytes,headers:{accept:req.get('accept')||'*/*','user-agent':config.previewUserAgent,'accept-language':req.get('accept-language')||'en-GB,en;q=0.9',referer:target.origin+'/',...(range?{range}:{})},headersOnly:req.method==='HEAD'});
+      if(r.statusCode>=300&&r.statusCode<400&&r.headers.location&&redirects<5){const next=absolute(r.headers.location,target);if(!next)break;target=await validatePublicTarget(next);redirects++;continue;}
+      break;
+    }
+    const type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
+    const kind=String(req.query.kind||'');
+    const headers={'content-type':r.headers['content-type']||'application/octet-stream'};
+    for(const h of ['content-range','accept-ranges','etag','last-modified'])if(r.headers[h])headers[h]=r.headers[h];
+    if(req.method==='HEAD')return res.status(r.statusCode||200).set(headers).end();
+    if(type.includes('text/css')||kind==='style'){
+      headers['content-type']='text/css; charset=utf-8';
+      const body=rewriteCss(r.body,target.toString(),req.params.id,s);headers['content-length']=String(Buffer.byteLength(body));return res.status(r.statusCode||200).set(headers).send(body);
+    }
+    if(/(?:javascript|ecmascript)/i.test(type)||type.includes('text/js')||kind==='script'){
+      headers['content-type']='application/javascript; charset=utf-8';
+      const body=rewriteJavascript(r.body,target.toString(),req.params.id,s);headers['content-length']=String(Buffer.byteLength(body));return res.status(r.statusCode||200).set(headers).send(body);
+    }
+    headers['content-length']=String(r.bodyBuffer.length);
+    return res.status(r.statusCode||200).set(headers).send(r.bodyBuffer);
+  }catch(e){return res.status(502).json({error:e.message||'Runtime proxy request failed'});}
+});
+app.all('/api/preview-runtime-blocked/:id',(req,res)=>{previewCors(req,res);res.status(405).json({error:'Write requests are disabled in sandboxed Preview. Use Real Firefox mode for full site interactions.'});});
+
+app.get('/api/preview-resource/:id/:token',async(req,res)=>{
+  const s=getSession(String(req.params.id));if(!s)return res.status(410).end();
+  const entry=s.resources.get(String(req.params.token));if(!entry)return res.status(404).end();
+  const node=pool.nodes.get(s.nodeId);if(!node||node.status==='offline')return res.status(503).end();
+  try{
+    const target=await validatePublicTarget(entry.url);const range=req.get('range');
+    const r=await requestViaProxy(node,target,{timeoutMs:config.previewTimeoutMs,maxBytes:req.query.download==='1'?config.previewMaxDownloadBytes:config.previewMaxResourceBytes,headers:{accept:'*/*','user-agent':config.previewUserAgent,...(entry.referer?{referer:entry.referer}:{}),...(range?{range}:{})}});
+    if(r.statusCode>=300&&r.statusCode<400&&r.headers.location){const next=absolute(r.headers.location,target);if(next){await validatePublicTarget(next);const newUrl=registerResource(req.params.id,s,next,entry.kind,entry.referer);return res.redirect(302,newUrl+(req.query.download==='1'?'?download=1':''));}}
+    const type=String(r.headers['content-type']||'application/octet-stream').toLowerCase();
+    const scriptAllowed=entry.kind==='script'&&(/(?:javascript|ecmascript)/i.test(type)||type.includes('text/js')||type.startsWith('text/')||type.includes('application/octet-stream'));
+    const styleAllowed=entry.kind==='style'&&(type.includes('css')||type.startsWith('text/')||type.includes('application/octet-stream'));
+    const normalAllowed=scriptAllowed||styleAllowed||type.startsWith('image/')||type.startsWith('font/')||type.startsWith('audio/')||type.startsWith('video/')||type.includes('text/css')||type.includes('font-woff')||type.includes('application/pdf');
+    const downloadAllowed=entry.kind==='download'&&(normalAllowed||type.includes('application/octet-stream')||type.includes('application/force-download')||type.includes('application/download')||type.includes('application/x-download')||type.includes('binary/octet-stream'));
+    if(!normalAllowed&&!downloadAllowed)return res.status(415).end();
+    const headers={'cache-control':'private, max-age=120','content-type':r.headers['content-type']||'application/octet-stream','access-control-allow-origin':'*','cross-origin-resource-policy':'cross-origin'};
+    if(r.headers['content-range'])headers['content-range']=r.headers['content-range'];if(r.headers['accept-ranges'])headers['accept-ranges']=r.headers['accept-ranges'];
+    if(req.query.download==='1'){
+      const remoteDisposition=String(r.headers['content-disposition']||'');const match=/filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(remoteDisposition);let filename=path.basename(target.pathname)||'download';
+      if(match?.[1]){try{filename=decodeURIComponent(match[1].trim());}catch{filename=match[1].trim();}}
+      headers['content-disposition']=`attachment; filename="${filename.replace(/["\\\r\n]/g,'_')}"`;
+    }
+    if(type.includes('text/css')||styleAllowed){headers['content-type']='text/css; charset=utf-8';const body=rewriteCss(r.body,target.toString(),req.params.id,s);headers['content-length']=String(Buffer.byteLength(body));return res.status(r.statusCode||200).set(headers).send(body);}
+    if(scriptAllowed){headers['content-type']='application/javascript; charset=utf-8';const body=rewriteJavascript(r.body,target.toString(),req.params.id,s);headers['content-length']=String(Buffer.byteLength(body));return res.status(r.statusCode||200).set(headers).send(body);}
+    headers['content-length']=String(r.bodyBuffer.length);return res.status(r.statusCode||200).set(headers).send(r.bodyBuffer);
+  }catch{return res.status(404).end();}
+});
 
 app.use((err,_req,res,_next)=>{console.error(err);res.status(400).json({error:err.message||'Request failed'});});
 app.get('/tester',(_req,res)=>res.sendFile(path.join(root,'public','tester.html')));app.get('/preview',(_req,res)=>res.sendFile(path.join(root,'public','preview.html')));app.get('/browser',(_req,res)=>res.sendFile(path.join(root,'public','browser.html')));app.get('/scanner',(_req,res)=>res.sendFile(path.join(root,'public','scanner.html')));app.get(['/api','/api/docs'],(_req,res)=>res.sendFile(path.join(root,'public','api-docs.html')));app.get('/{*splat}',(_req,res)=>res.sendFile(path.join(root,'public','index.html')));

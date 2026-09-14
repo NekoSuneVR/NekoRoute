@@ -1,4 +1,4 @@
-import { esc, countryLabel, countryName, regions, createNodePager } from '/common.js?v=0503-20260914T1520';
+import { esc, countryLabel, countryName, regions, createNodePager } from '/common.js?v=0504-20260914T1510';
 
 const $=s=>document.querySelector(s);const value=(s,f='')=>$(s)?.value??f;let stats=null;
 function fillFilters(){

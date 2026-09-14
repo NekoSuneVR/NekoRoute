@@ -17,7 +17,9 @@ export function requestViaProxy(proxy, targetUrl, {
   timeoutMs = 7000,
   maxBytes = 65536,
   headersOnly = false,
-  headers = {}
+  headers = {},
+  method = 'GET',
+  body = null
 } = {}) {
   const target = targetUrl instanceof URL ? targetUrl : new URL(targetUrl);
   const lib = target.protocol === 'http:' ? http : https;
@@ -37,8 +39,9 @@ export function requestViaProxy(proxy, targetUrl, {
       reject(error);
     };
 
-    const req = lib.get(target, {
+    const req = lib.request(target, {
       agent,
+      method: headersOnly ? 'HEAD' : String(method || 'GET').toUpperCase(),
       timeout: timeoutMs,
       headers: {
         'user-agent': 'NekoRoute/0.3 (+region-egress-test)',
@@ -81,5 +84,7 @@ export function requestViaProxy(proxy, targetUrl, {
     });
     req.on('timeout', () => req.destroy(new Error('Proxy request timed out')));
     req.on('error', fail);
+    if (body != null && !headersOnly) req.write(body);
+    req.end();
   });
 }
