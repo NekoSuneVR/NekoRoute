@@ -402,6 +402,78 @@ async function loadVakhov() {
   };
 }
 
+
+function evenlySample(values, maxItems) {
+  if (values.length <= maxItems) return values;
+  const out = [];
+  const step = values.length / maxItems;
+  for (let i = 0; i < maxItems; i++) out.push(values[Math.min(values.length - 1, Math.floor(i * step))]);
+  return out;
+}
+
+async function loadProtocolTextFeeds(definitions, {
+  endpointLabel = 'protocol text feeds',
+  sourceScore = 0.3,
+  maxItems = PROVIDER_ITEM_CAP
+} = {}) {
+  const errors = [];
+  const perFeedCap = Math.max(100, Math.ceil(maxItems / Math.max(1, definitions.length)));
+  const results = await mapLimited(definitions, Math.min(definitions.length, SOURCE_PAGE_CONCURRENCY), async ([protocol, endpoint]) => {
+    try {
+      const raw = await downloadText(endpoint);
+      const lines = String(raw || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      const sampled = evenlySample(lines, perFeedCap);
+      const items = sampled
+        .map(line => parseHostPort(line, protocol))
+        .filter(Boolean)
+        .map(x => baseItem({ ...x, sourceScore, country: 'XX', city: 'Unknown' }))
+        .filter(validProxy);
+      return { protocol, endpoint, items, totalAvailable: lines.length, error: null };
+    } catch (error) {
+      return { protocol, endpoint, items: [], totalAvailable: 0, error: String(error?.message || error).slice(0, 240) };
+    }
+  });
+
+  const all = [];
+  let totalAvailable = 0;
+  for (const result of results) {
+    totalAvailable += result.totalAvailable || 0;
+    if (result.error) errors.push({ endpoint: result.endpoint, error: result.error });
+    else all.push(...result.items);
+  }
+
+  return {
+    items: diversityPick(all, maxItems),
+    endpoint: endpointLabel,
+    errors,
+    pages: results.filter(x => !x.error).length,
+    totalAvailable
+  };
+}
+
+async function loadSoliSpirit() {
+  return loadProtocolTextFeeds([
+    ['http', 'https://raw.githubusercontent.com/SoliSpirit/proxy-list/main/http.txt'],
+    ['https', 'https://raw.githubusercontent.com/SoliSpirit/proxy-list/main/https.txt'],
+    ['socks4', 'https://raw.githubusercontent.com/SoliSpirit/proxy-list/main/socks4.txt'],
+    ['socks5', 'https://raw.githubusercontent.com/SoliSpirit/proxy-list/main/socks5.txt']
+  ], {
+    endpointLabel: 'https://github.com/SoliSpirit/proxy-list',
+    sourceScore: 0.28
+  });
+}
+
+async function loadTheSpeedX() {
+  return loadProtocolTextFeeds([
+    ['http', 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt'],
+    ['socks4', 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt'],
+    ['socks5', 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt']
+  ], {
+    endpointLabel: 'https://github.com/TheSpeedX/PROXY-List',
+    sourceScore: 0.3
+  });
+}
+
 const SOURCES = [
   {
     name: 'Proxifly',
@@ -495,7 +567,7 @@ const SOURCES = [
     load: () => loadPaginatedJson({
       pageSize: 500,
       maxItems: PROVIDER_ITEM_CAP,
-      makeUrl: page => `https://proxylist.geonode.com/api/proxy-list?page=${page}&limit=500&sort_by=responseTime&sort_type=asc`,
+      makeUrl: page => `https://proxylist.geonode.com/api/proxy-list?page=${page}&limit=500&sort_by=lastChecked&sort_type=desc`,
       totalFrom: data => data?.total,
       parsePage: data => {
         const rows = Array.isArray(data?.data) ? data.data : [];
@@ -517,6 +589,14 @@ const SOURCES = [
         return out;
       }
     })
+  },
+  {
+    name: 'SoliSpirit',
+    load: loadSoliSpirit
+  },
+  {
+    name: 'TheSpeedX',
+    load: loadTheSpeedX
   },
   {
     name: 'FreshProxyList',

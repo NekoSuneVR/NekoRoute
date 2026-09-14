@@ -1,4 +1,4 @@
-import { esc, flag, countryName, countryLabel, regions, createNodePager } from '/common.js?v=0500-20260914T1510';
+import { esc, flag, countryName, countryLabel, regions, createNodePager } from '/common.js?v=0503-20260914T1520';
 
 const $ = s => document.querySelector(s);
 const value = (s, fallback = '') => $(s)?.value ?? fallback;
