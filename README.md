@@ -1,4 +1,4 @@
-# NekoRoute v0.4.1
+# NekoRoute v0.4.2
 
 NekoRoute is a Dockerized regional availability, moderation and defensive website-analysis service. It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, persists proxy health in SQLite, compares HTTP behaviour across regions, provides a browser-like proxied preview, and scans public websites using local heuristics plus optional threat-intelligence providers.
 
@@ -161,3 +161,12 @@ PREVIEW_TIMEOUT_MS=45000
 Public URLs are restricted to HTTP/HTTPS ports 80/443. NekoRoute rejects localhost/private/link-local/CGNAT/reserved targets and credentials embedded in URLs. Preview resource downloads must first be discovered from a page inside that preview session and are represented by opaque tokens.
 
 Public proxies are untrusted. Do not send passwords, cookies, API keys, payment data or other sensitive information through them.
+
+
+### v0.4.2 preview fallback and downloads
+
+- Client-rendered pages no longer collapse into an unexplained white view. If almost no server-rendered content remains after remote scripts are removed, Preview shows an extracted fallback with title/description/text, discovered page links and detected media URLs.
+- Media URLs found in normal elements, metadata, attributes and inline page source are registered as session-scoped download resources.
+- Page-linked media/download requests reuse the selected proxy, browser-compatible User-Agent and originating page Referer where available.
+- CSS `@import` URLs are rewritten through the selected proxy in addition to ordinary `url(...)` resources.
+- `GET /api/v1/preview/session/:id/resources` exposes the resources already discovered in an active preview session for external integrations.

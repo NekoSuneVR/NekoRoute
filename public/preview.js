@@ -1,4 +1,4 @@
-import { esc, countryLabel, countryName, regions } from '/common.js?v=1789393577';
+import { esc, countryLabel, countryName, regions } from '/common.js?v=1789394865';
 
 const $ = s => document.querySelector(s);
 const value = (s, fallback = '') => $(s)?.value ?? fallback;
