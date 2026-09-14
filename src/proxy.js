@@ -13,36 +13,73 @@ export function makeAgent(proxy, targetProtocol = 'https:') {
     : new HttpsProxyAgent(proxy.url);
 }
 
-export function requestViaProxy(proxy, targetUrl, { timeoutMs = 7000, maxBytes = 65536 } = {}) {
+export function requestViaProxy(proxy, targetUrl, {
+  timeoutMs = 7000,
+  maxBytes = 65536,
+  headersOnly = false,
+  headers = {}
+} = {}) {
   const target = targetUrl instanceof URL ? targetUrl : new URL(targetUrl);
   const lib = target.protocol === 'http:' ? http : https;
   const agent = makeAgent(proxy, target.protocol);
   const started = Date.now();
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
     const req = lib.get(target, {
       agent,
       timeout: timeoutMs,
       headers: {
-        'user-agent': 'NekoRoute/0.1 (+health-check)',
-        accept: 'application/json,text/plain,text/html;q=0.8,*/*;q=0.5'
+        'user-agent': 'NekoRoute/0.2 (+region-egress-test)',
+        accept: 'text/html,application/xhtml+xml,application/json,text/plain,image/avif,image/webp,*/*;q=0.6',
+        'accept-encoding': 'identity',
+        ...headers
       }
     }, res => {
+      const base = {
+        statusCode: res.statusCode || 0,
+        headers: res.headers,
+        latencyMs: Date.now() - started
+      };
+
+      if (headersOnly) {
+        res.destroy();
+        done({ ...base, body: '', bodyBuffer: Buffer.alloc(0) });
+        return;
+      }
+
       let bytes = 0;
       const chunks = [];
       res.on('data', chunk => {
         bytes += chunk.length;
-        if (bytes <= maxBytes) chunks.push(chunk);
-        if (bytes > maxBytes) req.destroy(new Error('Response exceeded byte limit'));
+        if (bytes > maxBytes) {
+          res.destroy(new Error(`Response exceeded ${maxBytes} byte limit`));
+          return;
+        }
+        chunks.push(chunk);
       });
-      res.on('end', () => resolve({
-        statusCode: res.statusCode || 0,
-        headers: res.headers,
-        body: Buffer.concat(chunks).toString('utf8'),
-        latencyMs: Date.now() - started
-      }));
+      res.on('end', () => {
+        const bodyBuffer = Buffer.concat(chunks);
+        done({
+          ...base,
+          bodyBuffer,
+          body: bodyBuffer.toString('utf8')
+        });
+      });
+      res.on('error', fail);
     });
     req.on('timeout', () => req.destroy(new Error('Proxy request timed out')));
-    req.on('error', reject);
+    req.on('error', fail);
   });
 }
