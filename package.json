@@ -1,9 +1,9 @@
 {
   "name": "nekoroute",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Region-aware proxy health dashboard, multi-proxy status tester, and allowlisted safe website preview.",
+  "description": "Public regional availability diagnostics, safe allowlisted previews, malware heuristics, and persistent proxy health tracking.",
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
@@ -20,7 +20,9 @@
     "https-proxy-agent": "^7.0.6",
     "p-limit": "^6.2.0",
     "socks-proxy-agent": "^10.1.0",
-    "cheerio": "^1.1.2"
+    "cheerio": "^1.1.2",
+    "sequelize": "^6.37.7",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.0",
