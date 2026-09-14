@@ -31,6 +31,7 @@ export class ProxyPool {
       this.nodes.set(node.id, node);
     }
 
+    // One-time migration from the original JSON snapshot.
     if (!this.nodes.size) {
       try {
         const legacy = JSON.parse(await fs.readFile('/app/data/proxy-state.json', 'utf8'));
@@ -69,7 +70,16 @@ export class ProxyPool {
     const { proxies, sourceStats } = await fetchProxySources(this.config.maxProxies);
     const now = new Date().toISOString();
 
-    for (const node of this.nodes.values()) node.sourcePresent = false;
+    // Keep every previously known node. A source refresh only updates/adds records;
+    // it never deletes historical nodes because public nodes often disappear temporarily.
+    // Only mark nodes missing when at least one upstream source actually succeeded.
+    // If every source timed out/failed, retain the previous sourcePresent state.
+    const successfulSources = new Set(sourceStats.filter(stat => stat.ok).map(stat => stat.source));
+    if (successfulSources.size) {
+      for (const node of this.nodes.values()) {
+        if (successfulSources.has(node.source)) node.sourcePresent = false;
+      }
+    }
 
     for (const incoming of proxies) {
       const previous = this.nodes.get(incoming.id);

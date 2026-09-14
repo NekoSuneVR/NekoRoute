@@ -60,11 +60,11 @@ async function init() {
   stats = await statsRes.json();
   const config = await configRes.json();
   fillFilters();
-  $('#allowlistInfo').textContent = `Public availability tester · HTTP/HTTPS ports 80/443 only · private/reserved networks blocked · maximum ${config.matrixMaxNodes || 12} proxies per run · rate limits apply`;
+  $('#allowlistInfo').textContent = `Public availability tester · HTTP/HTTPS ports 80/443 only · private/reserved networks blocked · maximum ${config.matrixMaxNodes || 12} proxies per run · rate limits apply`; 
   await loadNodes();
 }
 
-for (const id of ['regionSelect','countrySelect','protocolSelect']) $('#'+id).addEventListener('change', loadNodes);
+for (const id of ['regionSelect','countrySelect','protocolSelect']) $(id.startsWith('#') ? id : '#'+id).addEventListener('change', loadNodes);
 
 $('#runBtn').addEventListener('click', async () => {
   const body = {

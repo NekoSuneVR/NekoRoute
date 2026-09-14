@@ -110,6 +110,7 @@ export async function scanWebsite(node, rawUrl, config) {
   const { target, result, chain } = await fetchDocument(node, rawUrl, config);
   const contentType = String(result.headers['content-type'] || '').toLowerCase();
   const findings = [];
+  let score = 0;
 
   if (result.statusCode >= 400) {
     addFinding(findings, 'info', `HTTP ${result.statusCode}`, 'The selected exit received an error response. This can be regional blocking, authentication, rate limiting, or a normal missing page.', 0);
@@ -127,7 +128,7 @@ export async function scanWebsite(node, rawUrl, config) {
   if (target.protocol === 'https:' && !securityHeaders.hsts) addFinding(findings, 'low', 'HSTS not present', 'HTTPS is in use but Strict-Transport-Security was not observed.', 3);
   if (!securityHeaders.csp) addFinding(findings, 'low', 'CSP not present', 'No Content-Security-Policy header was observed. This is not proof of compromise, but it reduces browser-side hardening.', 4);
 
-  const page = { title: null, scripts: 0, externalScripts: 0, iframes: 0, forms: 0, externalForms: 0, executableLinks: 0 };
+  let page = { title: null, scripts: 0, externalScripts: 0, iframes: 0, forms: 0, externalForms: 0, executableLinks: 0 };
   if (contentType.includes('html') || contentType.includes('xhtml') || !contentType) {
     const html = result.body || '';
     const $ = cheerio.load(html);
@@ -143,7 +144,9 @@ export async function scanWebsite(node, rawUrl, config) {
         if (action.hostname !== target.hostname) page.externalForms++;
       } catch {}
     });
-    if (page.externalForms) addFinding(findings, 'medium', 'Cross-domain form submission', `${page.externalForms} form(s) submit data to a different hostname. Review before entering credentials.`, 14);
+    if (page.externalForms) {
+      addFinding(findings, 'medium', 'Cross-domain form submission', `${page.externalForms} form(s) submit data to a different hostname. Review before entering credentials.`, 14);
+    }
 
     const riskyExt = /\.(?:exe|msi|scr|bat|cmd|ps1|apk|jar|dmg|pkg|iso|img)(?:$|[?#])/i;
     $('a[href]').each((_i, el) => {
@@ -182,7 +185,7 @@ export async function scanWebsite(node, rawUrl, config) {
   const wrThreats = providers.googleWebRisk?.threats || [];
   if (wrThreats.length) addFinding(findings, 'critical', 'Google Web Risk match', `Threat list match: ${wrThreats.join(', ')}.`, 55);
 
-  const score = Math.min(100, findings.reduce((sum, finding) => sum + Number(finding.points || 0), 0));
+  score = Math.min(100, findings.reduce((sum, finding) => sum + Number(finding.points || 0), 0));
   const verdict = riskVerdict(score);
 
   return {

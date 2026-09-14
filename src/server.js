@@ -31,7 +31,8 @@ const config = {
   publicRateLimitWindowMs: Math.max(10000, int('PUBLIC_RATE_LIMIT_WINDOW_MS', 60000)),
   publicRateLimitMax: Math.max(5, int('PUBLIC_RATE_LIMIT_MAX', 60)), scanRateLimitMax: Math.max(1, int('SCAN_RATE_LIMIT_MAX', 12)),
   scanTimeoutMs: Math.max(3000, int('SCAN_TIMEOUT_MS', 12000)), scanMaxBytes: Math.max(65536, int('SCAN_MAX_BYTES', 1048576)),
-  virusTotalApiKey: process.env.VIRUSTOTAL_API_KEY || '', googleWebRiskApiKey: process.env.GOOGLE_WEB_RISK_API_KEY || ''
+  virusTotalApiKey: process.env.VIRUSTOTAL_API_KEY || '', googleWebRiskApiKey: process.env.GOOGLE_WEB_RISK_API_KEY || '',
+  storeScanHistory: String(process.env.STORE_SCAN_HISTORY || 'false').toLowerCase() === 'true'
 };
 
 const pool = new ProxyPool(config);
@@ -74,7 +75,9 @@ app.get('/api/config', (_req,res) => res.json({
   allowedTestHosts: allowedHosts, exposeNodeAddresses: config.exposeAddresses, matrixMaxNodes: config.matrixMaxNodes,
   previewSessionTtlMs: config.previewSessionTtlMs, publicTools:true, previewRequiresAllowlist:true,
   scannerProviders:{ virusTotal:Boolean(config.virusTotalApiKey), googleWebRisk:Boolean(config.googleWebRiskApiKey) },
-  disclaimer:'NekoRoute is provided for regional availability, moderation, compatibility and defensive security analysis. Users are responsible for complying with applicable laws and site terms.'
+  storeScanHistory: config.storeScanHistory,
+  disclaimer:'NekoRoute is provided for regional availability, moderation, compatibility and defensive security analysis. Users are responsible for their use of the service and for complying with applicable laws and site terms.',
+  privacyNotice:'Target website traffic is fetched through the selected proxy. NekoRoute does not guarantee anonymity or zero trace at the host, proxy, network-provider, or third-party reputation-provider layer.'
 }));
 app.get('/api/proxies', (req,res) => {
   const filters={ country:req.query.country?.toUpperCase(), region:req.query.region, protocol:req.query.protocol?.toLowerCase(), status:req.query.status?.toLowerCase() };
@@ -113,7 +116,9 @@ app.post('/api/scan', rateLimit(config.scanRateLimitMax), async (req,res,next) =
     const target=await validatePublicTarget(req.body?.url), requested=req.body?.nodeRef?findNodeByRef(String(req.body.nodeRef)):null, node=requested||pool.select(selector(req.body));
     if(!node||node.status!=='online') return res.status(503).json({error:'No healthy proxy matches that selection'});
     const report=await scanWebsite(node,target.toString(),config), output={ok:true,...report,node:safeNode(node),notice:'Heuristic and reputation results are indicators, not a guarantee that a site is safe or malicious.'};
-    saveScanResult({target:report.target,nodeId:node.id,country:node.country,verdict:report.verdict,score:report.score,statusCode:report.statusCode,findings:report.findings,providers:report.providers}).catch(e=>console.error('[scanner] persist:',e.message));
+    if (config.storeScanHistory) {
+      saveScanResult({target:report.target,nodeId:node.id,country:node.country,verdict:report.verdict,score:report.score,statusCode:report.statusCode,findings:report.findings,providers:report.providers}).catch(e=>console.error('[scanner] persist:',e.message));
+    }
     res.json(output);
   } catch(e){next(e);}
 });

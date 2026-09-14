@@ -108,7 +108,7 @@ function downloadText(url, redirectsLeft = 4) {
     const req = https.get(url, {
       family: 4,
       headers: {
-        'user-agent': 'NekoRoute/0.2 (+https://github.com/NekoSuneVR/NekoRoute)',
+        'user-agent': 'NekoRoute/0.3 (+https://github.com/NekoSuneVR/NekoRoute)',
         accept: 'application/json,text/plain;q=0.9,*/*;q=0.5',
         'accept-encoding': 'identity',
         'cache-control': 'no-cache'

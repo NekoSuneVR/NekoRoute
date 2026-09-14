@@ -28,6 +28,7 @@ async function validateCommon(rawUrl) {
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP/HTTPS URLs are allowed');
   if (url.username || url.password) throw new Error('Credentials in URLs are not allowed');
 
+  // Public tools are intentionally limited to ordinary web ports so they cannot become generic port scanners.
   if (url.port) {
     const port = Number(url.port);
     if (!((url.protocol === 'http:' && port === 80) || (url.protocol === 'https:' && port === 443))) {

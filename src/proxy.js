@@ -41,7 +41,7 @@ export function requestViaProxy(proxy, targetUrl, {
       agent,
       timeout: timeoutMs,
       headers: {
-        'user-agent': 'NekoRoute/0.2 (+region-egress-test)',
+        'user-agent': 'NekoRoute/0.3 (+region-egress-test)',
         accept: 'text/html,application/xhtml+xml,application/json,text/plain,image/avif,image/webp,*/*;q=0.6',
         'accept-encoding': 'identity',
         ...headers

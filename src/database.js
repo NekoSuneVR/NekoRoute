@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Sequelize, DataTypes } from 'sequelize';
 
 const storage = process.env.SQLITE_PATH || '/app/data/nekoroute.sqlite';

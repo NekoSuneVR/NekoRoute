@@ -26,6 +26,7 @@ function severityClass(severity) {
   if (severity === 'low') return 'border-sky-500/30 bg-sky-500/10 text-sky-200';
   return 'border-zinc-700 bg-black/20 text-zinc-300';
 }
+
 function verdictClass(verdict) {
   return verdict === 'critical' ? 'text-rose-300' : verdict === 'high' ? 'text-orange-300' : verdict === 'medium' ? 'text-amber-300' : 'text-emerald-300';
 }
@@ -37,24 +38,44 @@ async function init() {
   fillFilters();
   await loadNodes();
   const providers = config.scannerProviders || {};
-  $('#providerInfo').textContent = `Local heuristics always enabled · VirusTotal ${providers.virusTotal ? 'enabled' : 'not configured'} · Google Web Risk ${providers.googleWebRisk ? 'enabled' : 'not configured'}`;
+  $('#providerInfo').textContent = `Local heuristics always enabled · VirusTotal ${providers.virusTotal ? 'enabled' : 'not configured'} · Google Web Risk ${providers.googleWebRisk ? 'enabled' : 'not configured'} · scan history ${config.storeScanHistory ? 'stored' : 'not stored'}`;
 }
+
 for (const id of ['regionSelect','countrySelect','protocolSelect']) $('#'+id).addEventListener('change', loadNodes);
 
 $('#scanBtn').addEventListener('click', async () => {
-  const body = { url: $('#scanUrl').value, region: $('#regionSelect').value || undefined, country: $('#countrySelect').value || undefined, protocol: $('#protocolSelect').value || undefined, nodeRef: $('#nodeSelect').value || undefined };
-  $('#scanBtn').disabled = true; $('#scanBtn').textContent = 'Scanning…'; $('#scanMeta').textContent = 'Fetching without executing remote JavaScript…';
+  const body = {
+    url: $('#scanUrl').value,
+    region: $('#regionSelect').value || undefined,
+    country: $('#countrySelect').value || undefined,
+    protocol: $('#protocolSelect').value || undefined,
+    nodeRef: $('#nodeSelect').value || undefined
+  };
+  $('#scanBtn').disabled = true;
+  $('#scanBtn').textContent = 'Scanning…';
+  $('#scanMeta').textContent = 'Fetching without executing remote JavaScript…';
   try {
     const res = await fetch('/api/scan', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) });
-    const data = await res.json(); if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    $('#verdict').className = `mt-1 text-2xl font-black ${verdictClass(data.verdict)}`; $('#verdict').textContent = String(data.verdict || 'unknown').toUpperCase();
-    $('#score').textContent = `${data.score}/100`; $('#status').textContent = data.statusCode ?? 'ERR'; $('#latency').textContent = data.latencyMs == null ? '—' : `${data.latencyMs} ms`; $('#findingCount').textContent = (data.findings || []).length;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    $('#verdict').className = `mt-1 text-2xl font-black ${verdictClass(data.verdict)}`;
+    $('#verdict').textContent = String(data.verdict || 'unknown').toUpperCase();
+    $('#score').textContent = `${data.score}/100`;
+    $('#status').textContent = data.statusCode ?? 'ERR';
+    $('#latency').textContent = data.latencyMs == null ? '—' : `${data.latencyMs} ms`;
+    $('#findingCount').textContent = (data.findings || []).length;
     $('#scanMeta').textContent = `${data.target} · ${data.durationMs} ms total · ${data.notice}`;
     $('#findings').innerHTML = (data.findings || []).map(f => `<div class="px-5 py-4"><div class="flex items-start gap-3"><span class="rounded-lg border px-2 py-1 text-[10px] font-black uppercase ${severityClass(f.severity)}">${esc(f.severity)}</span><div><div class="font-semibold">${esc(f.title)}</div><div class="mt-1 text-sm text-zinc-500">${esc(f.detail)}</div></div></div></div>`).join('') || '<div class="px-5 py-10 text-center text-emerald-300">No suspicious heuristic findings were detected.</div>';
     $('#providers').textContent = JSON.stringify(data.providers || {}, null, 2);
-    const n = data.node || {}; $('#route').innerHTML = `${flag(n.country)} <b>${esc(n.country)}</b> · ${esc(n.region)} · <span class="font-mono">${esc(n.protocol)}</span> · ${esc(n.address)} · ${n.latencyMs ?? '—'} ms`;
+    const n = data.node || {};
+    $('#route').innerHTML = `${flag(n.country)} <b>${esc(n.country)}</b> · ${esc(n.region)} · <span class="font-mono">${esc(n.protocol)}</span> · ${esc(n.address)} · ${n.latencyMs ?? '—'} ms`;
   } catch (error) {
-    $('#scanMeta').textContent = error.message; $('#findings').innerHTML = `<div class="px-5 py-10 text-center text-rose-300">${esc(error.message)}</div>`;
-  } finally { $('#scanBtn').disabled = false; $('#scanBtn').textContent = 'Scan'; }
+    $('#scanMeta').textContent = error.message;
+    $('#findings').innerHTML = `<div class="px-5 py-10 text-center text-rose-300">${esc(error.message)}</div>`;
+  } finally {
+    $('#scanBtn').disabled = false;
+    $('#scanBtn').textContent = 'Scan';
+  }
 });
+
 init().catch(error => { $('#providerInfo').textContent = error.message; });

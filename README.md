@@ -51,7 +51,7 @@ Optional reputation lookups are supported with environment keys for:
 - **VirusTotal API v3** — NekoRoute looks up an existing URL report and does not automatically submit unknown URLs.
 - **Google Web Risk Lookup API** — checks malware, social-engineering and unwanted-software lists.
 
-Scanner findings are indicators, not a guarantee that a website is safe or malicious.
+Scanner findings are indicators, not a guarantee that a website is safe or malicious. Target page content is fetched through the selected proxy. Optional reputation-provider lookups are made directly by NekoRoute so API keys are never sent through an untrusted public proxy. `STORE_SCAN_HISTORY=false` is the default, so visitor scan targets/results are not persisted by the application unless the operator opts in.
 
 ## Persistent SQLite proxy state
 
@@ -89,6 +89,7 @@ SQLITE_PATH=/app/data/nekoroute.sqlite
 PUBLIC_RATE_LIMIT_WINDOW_MS=60000
 PUBLIC_RATE_LIMIT_MAX=60
 SCAN_RATE_LIMIT_MAX=12
+STORE_SCAN_HISTORY=false
 
 ALLOWED_TEST_HOSTS=example.com,my-company.example
 EXPOSE_NODE_ADDRESSES=false
