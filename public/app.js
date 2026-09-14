@@ -62,17 +62,6 @@ for (const [id,key] of [['regionSelect','region'],['countrySelect','country'],['
 }
 $('#reloadBtn').onclick = async () => { await loadStats(); await loadProxies(); };
 $('#clearFilters').onclick = () => { Object.assign(state,{region:'',country:'',protocol:'',status:'online'}); syncSelects(); loadProxies(); };
-$('#testBtn').onclick = async () => {
-  const token = $('#adminToken').value;
-  const body = { url: $('#testUrl').value, region: state.region || undefined, country: state.country || undefined, protocol: state.protocol || undefined };
-  $('#testOutput').textContent = 'Testing…';
-  try {
-    const res = await fetch('/api/test-route', { method:'POST', headers:{'content-type':'application/json','x-admin-token':token}, body:JSON.stringify(body) });
-    const data = await res.json();
-    $('#testOutput').textContent = JSON.stringify(data, null, 2);
-  } catch (e) { $('#testOutput').textContent = e.message; }
-};
-
 try { await loadStats(); await loadProxies(); }
 catch (e) { $('#healthPill').textContent = 'API unavailable'; console.error(e); }
 setInterval(async () => { try { await loadStats(); await loadProxies(); } catch {} }, 30000);
