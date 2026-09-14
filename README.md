@@ -1,99 +1,144 @@
 # NekoRoute
 
-NekoRoute is a Dockerized, region-aware **public proxy health dashboard and safe egress tester**. It ingests public HTTP/HTTPS/SOCKS4/SOCKS5 node lists, groups nodes by country/region, continuously checks a bounded rotating sample, scores recent reliability/latency, and selects healthy fallbacks.
+NekoRoute is a Dockerized, region-aware public web diagnostics dashboard for **regional availability, moderation checks, compatibility testing and defensive website analysis**.
 
-> **Intended use:** privacy experiments, network diagnostics, and checking how services you own/control behave from different egress regions. It is not designed as an open browsing proxy or as a mechanism to defeat access controls or regional restrictions.
+It discovers public HTTP/HTTPS/SOCKS4/SOCKS5 exits, continuously health-checks them, persists their history in SQLite, compares HTTP behaviour across regions, offers a restricted safe rendered preview, and can inspect a public website for suspicious indicators without executing the site's JavaScript.
 
-## Features
+> **Use notice:** NekoRoute is intended for professional/defensive diagnostics. Users are responsible for complying with applicable law and website terms. The project does not guarantee anonymity, and the safe preview is intentionally not an unrestricted web relay.
 
-- Dark, modern, green TailwindCSS UI.
-- HTTP, HTTPS, SOCKS4 and SOCKS5 node ingestion.
-- Country + world-region filters.
-- Health states: unknown → online / degraded / offline.
-- Rotating checks rather than hammering thousands of public endpoints at once.
-- Reliability + latency scoring and automatic route failover.
-- Persistent health state in a Docker volume.
-- Admin-only route tester.
-- URL tester blocks private/reserved IPs and permits only `ALLOWED_TEST_HOSTS`.
-- Node addresses are masked by default; set `EXPOSE_NODE_ADDRESSES=true` for your private deployment.
-- GitHub Actions workflow builds and publishes a GHCR image.
+## Main tools
 
-## Source
+### Dashboard `/`
 
-The default sources are Proxifly and Proxio public lists. NekoRoute deduplicates them, keeps a country/protocol-diverse bounded pool, and performs its own health checks before marking a node usable.
+- Public proxy pool health and regional/country/protocol filters.
+- `online`, `degraded`, `offline`, and `unknown` status.
+- Latency, reliability, last-success and health history.
+- Public node addresses are hidden unless `EXPOSE_NODE_ADDRESSES=true`.
 
-## Start
+### Site Tester `/tester`
+
+The Site Tester is public and does not require the admin token. It checks a normal public HTTP/HTTPS URL through multiple healthy exits and compares:
+
+- 2xx / 3xx / 403 / 404 / 429 / 5xx behaviour
+- redirects
+- latency
+- country/region/protocol
+- timeout and connection errors
+
+For safety it only permits ordinary HTTP/HTTPS web traffic on ports 80 and 443, rejects credentials in URLs, and rejects loopback/private/link-local/CGNAT/reserved destinations.
+
+### Safe Proxy Preview `/preview`
+
+Safe Preview is also public, but the **operator controls the allowed target domains** through `ALLOWED_TEST_HOSTS`. That keeps an Internet-facing deployment from becoming an unrestricted anonymous relay.
+
+The preview rewrites HTML/CSS/images/fonts through the selected proxy while disabling remote scripts, cookies, forms, authentication, WebSockets and service workers. JavaScript-heavy websites can therefore show only their server-rendered shell.
+
+### Malware & Domain Scanner `/scanner`
+
+The scanner fetches a public HTTP/HTTPS URL through a selected healthy proxy without executing remote JavaScript. It reports heuristic indicators such as:
+
+- security header presence
+- redirect chain
+- cross-domain form submissions
+- password fields combined with cross-domain forms
+- executable/installable download links
+- iframe density
+- meta refresh
+- common obfuscation/dynamic-code patterns such as `eval`, `Function`, `atob`, large base64-like blobs and `document.write`
+
+Optional reputation lookups are supported with environment keys for:
+
+- **VirusTotal API v3** — NekoRoute looks up an existing URL report and does not automatically submit unknown URLs.
+- **Google Web Risk Lookup API** — checks malware, social-engineering and unwanted-software lists.
+
+Scanner findings are indicators, not a guarantee that a website is safe or malicious.
+
+## Persistent SQLite proxy state
+
+NekoRoute v0.3 uses **Sequelize + SQLite** at `/app/data/nekoroute.sqlite`.
+
+The database stores every discovered node and its health history. A source refresh **does not delete missing nodes**. If a public node disappears, NekoRoute keeps it, marks it offline/degraded through normal health checks, and revisits it later so it can recover automatically.
+
+The health-check cursor is persisted too, so a container restart continues from the previous position instead of always starting at node 0. Existing `/app/data/proxy-state.json` data is migrated into SQLite automatically when the database is initially empty.
+
+## Run with Docker Compose
 
 ```bash
 cp .env.example .env
-# Edit ADMIN_TOKEN and ALLOWED_TEST_HOSTS
+nano .env
+
 docker compose up -d --build
+docker compose logs -f nekoroute
 ```
 
-Open `http://localhost:3210`.
+Open:
 
-## Important settings
+```text
+http://SERVER-IP:3210/
+```
+
+For a public deployment, put NekoRoute behind HTTPS/reverse proxying and set `TRUST_PROXY=true` only when your reverse proxy is trusted and correctly strips client-supplied forwarding headers.
+
+## Recommended `.env`
 
 ```dotenv
-ADMIN_TOKEN=use-a-long-random-value
-ALLOWED_TEST_HOSTS=example.com,my-own-site.example
+PORT=3210
+ADMIN_TOKEN=use-a-long-random-maintenance-secret
+SQLITE_PATH=/app/data/nekoroute.sqlite
+
+PUBLIC_RATE_LIMIT_WINDOW_MS=60000
+PUBLIC_RATE_LIMIT_MAX=60
+SCAN_RATE_LIMIT_MAX=12
+
+ALLOWED_TEST_HOSTS=example.com,my-company.example
 EXPOSE_NODE_ADDRESSES=false
-MAX_PROXIES=1500
-HEALTHCHECK_BATCH_SIZE=80
-HEALTHCHECK_INTERVAL_MS=60000
 ```
 
-`ALLOWED_TEST_HOSTS` accepts a comma-separated hostname list. Subdomains are permitted automatically. DNS is resolved before a test; loopback, RFC1918, link-local, CGNAT and other reserved destinations are rejected.
+`ADMIN_TOKEN` is maintenance-only. It protects:
 
-## How health checking works
+- `POST /api/admin/refresh`
+- `POST /api/admin/sweep`
 
-The source list is refreshed on an interval. A rotating batch of nodes is then tested through `HEALTHCHECK_URL`. One failure marks a node `degraded`; two consecutive failures mark it `offline`. Successful checks reset the failure streak. Selection only chooses `online` nodes.
+Visitors do **not** need it for the Site Tester, Safe Preview session creation, or Malware Scanner.
 
-Public proxy availability changes quickly, so **zero downtime cannot be guaranteed**. The pool reduces disruption by keeping multiple recently healthy nodes and failing over during a test.
+## API overview
 
-## OpenVPN / WireGuard
+Public read/diagnostic endpoints:
 
-NekoRoute deliberately does **not** scrape and auto-connect arbitrary free VPN profiles. Public VPN profiles can execute routing/DNS changes at the container/host level and have a much larger trust and privilege surface than application-level proxy agents.
-
-A safer extension is a bring-your-own egress adapter using VPN profiles you trust. Run that as a separate container/network namespace, then register its local SOCKS/HTTP gateway with NekoRoute. This keeps the web process unprivileged (`cap_drop: ALL`). An example is included in `docker-compose.vpn-example.yml`.
-
-Register one or more trusted gateways with `STATIC_PROXY_NODES`, for example:
-
-```dotenv
-STATIC_PROXY_NODES=socks5://gluetun:1080|GB|London|Gluetun;socks5://gluetun-us:1080|US|New York|Gluetun
+```text
+GET  /api/health
+GET  /api/stats
+GET  /api/config
+GET  /api/proxies
+POST /api/test-route
+POST /api/test-matrix
+POST /api/preview-session
+GET  /api/preview/:sessionId
+GET  /api/preview-resource/:sessionId
+POST /api/scan
 ```
 
-The country/label is operator-supplied so the UI can place the VPN exit in the correct region. Do not put proxy credentials in this value; keep the gateway on the private Docker network instead.
+Maintenance endpoints:
 
-## Security notes
-
-Public proxies can observe or tamper with traffic that is not end-to-end encrypted. Do not transmit credentials, session cookies, private API keys, personal data, payment data, or other secrets through unknown relays. Use the admin tester only against systems you are authorized to test.
-
-## API
-
-- `GET /api/health`
-- `GET /api/stats`
-- `GET /api/proxies?region=Europe&country=DE&protocol=socks5&status=online`
-- `POST /api/admin/refresh` with `x-admin-token`
-- `POST /api/admin/sweep` with `x-admin-token`
-- `POST /api/test-route` with `x-admin-token`
-
-Example test body:
-
-```json
-{
-  "url": "https://example.com/",
-  "region": "Europe",
-  "protocol": "socks5"
-}
+```text
+POST /api/admin/refresh
+POST /api/admin/sweep
 ```
 
-## Development
+Send the maintenance token as:
 
-```bash
-npm install
-npm run build
-npm start
+```text
+x-admin-token: YOUR_ADMIN_TOKEN
 ```
 
-Node.js 22+ is recommended.
+## Abuse resistance
+
+Public diagnostic routes include rate limiting. Public arbitrary targets are limited to HTTP/HTTPS on ports 80/443 and cannot resolve to private/reserved networks. Safe Preview adds an additional operator-controlled hostname allowlist.
+
+These controls should remain enabled on public deployments. They reduce SSRF, internal-network probing, generic port-scanning and open-relay abuse.
+
+## Optional VPN sidecar
+
+The existing Gluetun example can provide a trusted SOCKS5 sidecar using OpenVPN or WireGuard. Add it as a `STATIC_PROXY_NODES` entry if you operate an authorised exit yourself.
+
+Public scraped proxy nodes are untrusted. Do not send passwords, cookies, API keys, payment details, or other sensitive data through them.
